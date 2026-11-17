@@ -1,0 +1,186 @@
+{
+  "name": "GM-04 - Daily Owner Digest & Inactivity Follow-Up",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 21,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "b6d9f4a0-4001-4c22-9a11-000000000001",
+      "name": "Schedule Trigger - Daily 9PM IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Members",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "b6d9f4a0-4002-4c22-9a11-000000000002",
+      "name": "Google Sheets - Read Members",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const today = new Intl.DateTimeFormat('en-CA', {\n  timeZone: 'Asia/Kolkata',\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n}).format(new Date());\n\nconst executedAtIST = new Intl.DateTimeFormat('sv-SE', {\n  timeZone: 'Asia/Kolkata',\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n  hour: '2-digit',\n  minute: '2-digit',\n  second: '2-digit',\n  hour12: false,\n}).format(new Date()) + ' IST';\n\nfunction toUtcMs(isoDate) {\n  if (!isoDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(String(isoDate).trim())) return null;\n  const [y, m, d] = String(isoDate).trim().split('-').map(Number);\n  return Date.UTC(y, m - 1, d);\n}\n\nconst todayMs = toUtcMs(today);\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.member_id);\n\nconst active = [];\nconst expiring7d = [];\nconst expired = [];\nconst pending = [];\nconst newSignupsToday = [];\nlet pendingAmount = 0;\nlet collectionsToday = 0;\n\nfor (const r of rows) {\n  const expStr = String(r.expiry_date || '').trim();\n  const expMs = toUtcMs(expStr);\n  const daysLeft = expMs !== null ? Math.round((expMs - todayMs) / 86400000) : null;\n  const feeNum = Number(r.fee || 0) || 0;\n\n  if (expStr >= today && String(r.member_status || '') !== 'Frozen') {\n    active.push(r);\n  }\n  if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 7) {\n    expiring7d.push(r);\n  }\n  if (expStr && expStr < today) {\n    expired.push(r);\n  }\n  if (String(r.payment_status || '').trim() === 'Pending') {\n    pending.push(r);\n    pendingAmount += feeNum;\n  }\n  if (String(r.start_date || '').trim() === today) {\n    newSignupsToday.push(r);\n  }\n  if (String(r.last_payment_date || '').trim() === today && String(r.payment_status || '').trim() === 'Paid') {\n    collectionsToday += feeNum;\n  }\n}\n\nconst followupCandidates = [...expiring7d, ...pending].map((r) => `${r.name} (${r.member_id})`).slice(0, 10);\nconst summaryText =\n  `Crush Lifestyle Fitness Studio - Daily Owner Digest (${today})\\n` +\n  `Total Members: ${rows.length}\\n` +\n  `Active: ${active.length} | Expiring <=7d: ${expiring7d.length} | Expired: ${expired.length}\\n` +\n  `New Signups Today: ${newSignupsToday.length} | Collections Today: Rs.${collectionsToday}\\n` +\n  `Pending Dues: ${pending.length} (Rs.${pendingAmount})\\n` +\n  `Priority Follow-Ups: ${followupCandidates.length ? followupCandidates.join(', ') : 'None'}`;\n\nreturn [{\n  json: {\n    log_id: `DIGEST-${today.replace(/-/g, '')}`,\n    timestamp: executedAtIST,\n    date: today,\n    total_members: rows.length,\n    active_count: active.length,\n    expiring_in_7_days_count: expiring7d.length,\n    expired_count: expired.length,\n    pending_dues_count: pending.length,\n    pending_dues_amount: pendingAmount,\n    new_signups_today_count: newSignupsToday.length,\n    collections_today_amount: collectionsToday,\n    followup_candidates: followupCandidates,\n    summary_text: summaryText,\n  },\n}];"
+      },
+      "id": "b6d9f4a0-4003-4c22-9a11-000000000003",
+      "name": "Code - Compute Studio KPIs & Drop-Off List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.FASTAPI_PUBLIC_URL || 'http://localhost:8000') + '/api/v1/agent/autonomous-cycle' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {} }}",
+        "options": {}
+      },
+      "id": "b6d9f4a0-4005-4c22-9a11-000000000005",
+      "name": "HTTP Request - Run Python AI Autopilot & P&L Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Automation Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "log_id": "={{ $('Code - Compute Studio KPIs & Drop-Off List').first().json.log_id }}",
+            "timestamp": "={{ $('Code - Compute Studio KPIs & Drop-Off List').first().json.timestamp }}",
+            "workflow": "GM-04",
+            "member_id": "ALL",
+            "action": "DAILY_OWNER_DIGEST",
+            "status": "LOGGED",
+            "details": "={{ $('Code - Compute Studio KPIs & Drop-Off List').first().json.summary_text + ($json.reply ? '\\n\\nAI CFO Autopilot: ' + $json.reply : '') }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "b6d9f4a0-4004-4c22-9a11-000000000004",
+      "name": "Google Sheets - Log Daily Digest",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger - Daily 9PM IST": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Read Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read Members": {
+      "main": [
+        [
+          {
+            "node": "Code - Compute Studio KPIs & Drop-Off List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Compute Studio KPIs & Drop-Off List": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Run Python AI Autopilot & P&L Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Run Python AI Autopilot & P&L Audit": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Log Daily Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "Crush Lifestyle Fitness Studio"
+    },
+    {
+      "name": "GM-04"
+    }
+  ]
+}

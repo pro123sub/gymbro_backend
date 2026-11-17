@@ -1,0 +1,551 @@
+{
+  "name": "GM-01 - Gym Member Registration",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "crush-member-registration",
+        "formTitle": "Crush Lifestyle Fitness Studio - Member Registration",
+        "formDescription": "Register a new gym member.",
+        "responseMode": "lastNode",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Full Name",
+              "fieldType": "text",
+              "placeholder": "e.g. Rohit Kumar",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Phone Number",
+              "fieldType": "text",
+              "placeholder": "e.g. 9876543210 or +91 9876543210",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "placeholder": "e.g. rohit@example.com",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Gender",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Male"
+                  },
+                  {
+                    "option": "Female"
+                  },
+                  {
+                    "option": "Other"
+                  },
+                  {
+                    "option": "Prefer not to say"
+                  }
+                ]
+              },
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Date of Birth",
+              "fieldType": "date",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Address",
+              "fieldType": "text",
+              "placeholder": "House/Flat No, Street, Locality, City",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Emergency Contact Name",
+              "fieldType": "text",
+              "placeholder": "Emergency contact full name",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Emergency Contact Phone",
+              "fieldType": "text",
+              "placeholder": "10-digit Indian mobile number",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Membership Plan",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Monthly"
+                  },
+                  {
+                    "option": "Quarterly"
+                  },
+                  {
+                    "option": "Half-Yearly"
+                  },
+                  {
+                    "option": "Yearly"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Membership Fee",
+              "fieldType": "number",
+              "placeholder": "e.g. 1500",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Start Date",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Payment Status",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Paid"
+                  },
+                  {
+                    "option": "Pending"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b6d9f1a0-1001-4c22-9a11-000000000001",
+      "name": "n8n Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "gm01-crush-fitness-member-registration"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const PLAN_DURATIONS = {\n  Monthly: 30,\n  Quarterly: 90,\n  'Half-Yearly': 180,\n  Yearly: 365,\n};\nconst VALID_GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];\nconst VALID_PAYMENT_STATUSES = ['Paid', 'Pending'];\n\nconst todayIST = new Intl.DateTimeFormat('en-CA', {\n  timeZone: 'Asia/Kolkata',\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n}).format(new Date());\n\nconst submittedAtIST = new Intl.DateTimeFormat('sv-SE', {\n  timeZone: 'Asia/Kolkata',\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n  hour: '2-digit',\n  minute: '2-digit',\n  second: '2-digit',\n  hour12: false,\n}).format(new Date()) + ' IST';\n\nfunction cleanStr(val) {\n  if (val === undefined || val === null) return '';\n  return String(val).trim();\n}\n\nfunction normalizeIndianMobile(raw) {\n  const str = cleanStr(raw);\n  if (!str) return { valid: false, normalized: '', reason: 'empty' };\n  let digits = str.replace(/\\D/g, '');\n  if (digits.length === 12 && digits.startsWith('91')) {\n    digits = digits.slice(2);\n  } else if (digits.length === 11 && digits.startsWith('0')) {\n    digits = digits.slice(1);\n  }\n  if (!/^[6-9]\\d{9}$/.test(digits)) {\n    return { valid: false, normalized: '', reason: 'format' };\n  }\n  return { valid: true, normalized: '91' + digits };\n}\n\nfunction parseIsoDate(raw) {\n  const str = cleanStr(raw);\n  if (!str) return null;\n  const match = str.match(/^(\\d{4})-(\\d{2})-(\\d{2})(?:$|T|\\s)/);\n  if (!match) return null;\n  const y = Number(match[1]);\n  const m = Number(match[2]);\n  const d = Number(match[3]);\n  const dt = new Date(Date.UTC(y, m - 1, d));\n  if (\n    dt.getUTCFullYear() !== y ||\n    dt.getUTCMonth() !== m - 1 ||\n    dt.getUTCDate() !== d\n  ) {\n    return null;\n  }\n  return `${match[1]}-${match[2]}-${match[3]}`;\n}\n\nreturn $input.all().map((item) => {\n  const raw = item.json || {};\n  const errors = [];\n\n  // Never trust user-supplied member_id, memberId, or id values.\n  const fullName = cleanStr(raw['Full Name'] ?? raw.full_name ?? raw.name);\n  if (!fullName) {\n    errors.push('Full Name is required and cannot be empty.');\n  }\n\n  const rawPhone = raw['Phone Number'] ?? raw.phone ?? raw.phone_number;\n  const phoneResult = normalizeIndianMobile(rawPhone);\n  if (!phoneResult.valid) {\n    errors.push(\n      'Phone Number must be a valid Indian mobile number (10 digits starting with 6-9, optionally prefixed with +91, 91, or 0).'\n    );\n  }\n\n  const email = cleanStr(raw['Email'] ?? raw.email).toLowerCase();\n  if (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {\n    errors.push('Email must be a valid email address.');\n  }\n\n  const gender = cleanStr(raw['Gender'] ?? raw.gender);\n  if (gender && !VALID_GENDERS.includes(gender)) {\n    errors.push(`Gender must be one of: ${VALID_GENDERS.join(', ')}.`);\n  }\n\n  const rawDob = cleanStr(raw['Date of Birth'] ?? raw.date_of_birth ?? raw.dob);\n  let dateOfBirth = '';\n  if (rawDob) {\n    const parsedDob = parseIsoDate(rawDob);\n    if (!parsedDob) {\n      errors.push('Date of Birth must be a valid calendar date in YYYY-MM-DD format.');\n    } else if (parsedDob > todayIST) {\n      errors.push('Date of Birth cannot be in the future.');\n    } else {\n      dateOfBirth = parsedDob;\n    }\n  }\n\n  const address = cleanStr(raw['Address'] ?? raw.address);\n  const emergencyContactName = cleanStr(\n    raw['Emergency Contact Name'] ?? raw.emergency_contact_name\n  );\n\n  const rawEmergencyPhone = cleanStr(\n    raw['Emergency Contact Phone'] ?? raw.emergency_contact_phone\n  );\n  let emergencyContactPhone = '';\n  if (rawEmergencyPhone) {\n    const ecPhoneResult = normalizeIndianMobile(rawEmergencyPhone);\n    if (!ecPhoneResult.valid) {\n      errors.push(\n        'Emergency Contact Phone must be a valid Indian mobile number (or left blank).'\n      );\n    } else {\n      emergencyContactPhone = ecPhoneResult.normalized;\n    }\n  }\n\n  const plan = cleanStr(raw['Membership Plan'] ?? raw.plan ?? raw.membership_plan);\n  if (!Object.prototype.hasOwnProperty.call(PLAN_DURATIONS, plan)) {\n    errors.push(\n      `Membership Plan must be one of: ${Object.keys(PLAN_DURATIONS).join(', ')}.`\n    );\n  }\n\n  const rawFee = raw['Membership Fee'] ?? raw.fee ?? raw.membership_fee;\n  const feeStr = cleanStr(rawFee);\n  const feeNum = feeStr === '' ? NaN : Number(feeStr);\n  if (!Number.isFinite(feeNum) || feeNum < 0) {\n    errors.push('Membership Fee must be a valid non-negative number.');\n  }\n\n  const rawStartDate = raw['Start Date'] ?? raw.start_date;\n  const startDate = parseIsoDate(rawStartDate);\n  if (!startDate) {\n    errors.push('Start Date must be a valid calendar date in YYYY-MM-DD format.');\n  }\n\n  const paymentStatus = cleanStr(\n    raw['Payment Status'] ?? raw.payment_status\n  );\n  if (!VALID_PAYMENT_STATUSES.includes(paymentStatus)) {\n    errors.push(\n      `Payment Status must be one of: ${VALID_PAYMENT_STATUSES.join(', ')}.`\n    );\n  }\n\n  const notes = cleanStr(raw['Notes'] ?? raw.notes);\n  const isValid = errors.length === 0;\n\n  return {\n    json: {\n      is_valid: isValid,\n      validation_errors: errors,\n      error_message: errors.map((e, idx) => `${idx + 1}. ${e}`).join('\\n'),\n      submitted_at_ist: submittedAtIST,\n      validated_data: isValid\n        ? {\n            name: fullName,\n            phone: phoneResult.normalized,\n            email,\n            gender,\n            date_of_birth: dateOfBirth,\n            address,\n            emergency_contact_name: emergencyContactName,\n            emergency_contact_phone: emergencyContactPhone,\n            plan,\n            duration_days: PLAN_DURATIONS[plan],\n            fee: feeNum,\n            start_date: startDate,\n            payment_status: paymentStatus,\n            notes,\n          }\n        : null,\n    },\n  };\n});"
+      },
+      "id": "b6d9f1a0-1002-4c22-9a11-000000000002",
+      "name": "Code - Validate Registration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-validation-passed-01",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b6d9f1a0-1003-4c22-9a11-000000000003",
+      "name": "IF - Validation Passed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const PLAN_DURATIONS = {\n  Monthly: 30,\n  Quarterly: 90,\n  'Half-Yearly': 180,\n  Yearly: 365,\n};\n\nconst ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';\nconst generatedIds = new Set();\n\nfunction generateUniqueMemberId() {\n  let candidate = '';\n  do {\n    const timePart = Date.now()\n      .toString(36)\n      .toUpperCase()\n      .slice(-4)\n      .padStart(4, '0');\n    let randPart = '';\n    if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.getRandomValues === 'function') {\n      const bytes = new Uint8Array(4);\n      globalThis.crypto.getRandomValues(bytes);\n      for (let i = 0; i < 4; i++) {\n        randPart += ALPHABET[bytes[i] % ALPHABET.length];\n      }\n    } else {\n      for (let i = 0; i < 4; i++) {\n        randPart += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];\n      }\n    }\n    candidate = `MEM-${timePart}${randPart}`;\n  } while (generatedIds.has(candidate));\n  generatedIds.add(candidate);\n  return candidate;\n}\n\nfunction addDays(isoDate, days) {\n  const [y, m, d] = isoDate.split('-').map(Number);\n  const utcMs = Date.UTC(y, m - 1, d) + days * 86400000;\n  const dt = new Date(utcMs);\n  const yy = dt.getUTCFullYear();\n  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');\n  const dd = String(dt.getUTCDate()).padStart(2, '0');\n  return `${yy}-${mm}-${dd}`;\n}\n\nreturn $input.all().map((item) => {\n  const v = item.json.validated_data;\n  if (!v) {\n    throw new Error('Missing validated_data in Generate Member Record.');\n  }\n\n  const durationDays = PLAN_DURATIONS[v.plan];\n  if (!durationDays) {\n    throw new Error(`Unsupported membership plan: ${v.plan}`);\n  }\n\n  const memberId = generateUniqueMemberId();\n  const expiryDate = addDays(v.start_date, durationDays);\n  const lastPaymentDate = v.payment_status === 'Paid' ? v.start_date : '';\n  const onboardingNote = 'Onboarding: Day-1 Welcome | Next Follow-Up: +3d';\n\n  return {\n    json: {\n      member_id: memberId,\n      name: v.name,\n      phone: v.phone,\n      email: v.email,\n      gender: v.gender,\n      date_of_birth: v.date_of_birth,\n      address: v.address,\n      emergency_contact_name: v.emergency_contact_name,\n      emergency_contact_phone: v.emergency_contact_phone,\n      plan: v.plan,\n      fee: v.fee,\n      start_date: v.start_date,\n      expiry_date: expiryDate,\n      payment_status: v.payment_status,\n      last_payment_date: lastPaymentDate,\n      last_reminder_date: '',\n      member_status: 'Active',\n      notes: v.notes ? `${v.notes} | ${onboardingNote}` : onboardingNote,\n    },\n  };\n});"
+      },
+      "id": "b6d9f1a0-1004-4c22-9a11-000000000004",
+      "name": "Code - Generate Member Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Members",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "member_id": "={{ $json.member_id }}",
+            "name": "={{ $json.name }}",
+            "phone": "={{ $json.phone }}",
+            "email": "={{ $json.email }}",
+            "gender": "={{ $json.gender }}",
+            "date_of_birth": "={{ $json.date_of_birth }}",
+            "address": "={{ $json.address }}",
+            "emergency_contact_name": "={{ $json.emergency_contact_name }}",
+            "emergency_contact_phone": "={{ $json.emergency_contact_phone }}",
+            "plan": "={{ $json.plan }}",
+            "fee": "={{ $json.fee }}",
+            "start_date": "={{ $json.start_date }}",
+            "expiry_date": "={{ $json.expiry_date }}",
+            "payment_status": "={{ $json.payment_status }}",
+            "last_payment_date": "={{ $json.last_payment_date }}",
+            "last_reminder_date": "={{ $json.last_reminder_date }}",
+            "member_status": "={{ $json.member_status }}",
+            "notes": "={{ $json.notes }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "member_id",
+              "displayName": "member_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "gender",
+              "displayName": "gender",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "date_of_birth",
+              "displayName": "date_of_birth",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "emergency_contact_name",
+              "displayName": "emergency_contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "emergency_contact_phone",
+              "displayName": "emergency_contact_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "plan",
+              "displayName": "plan",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "fee",
+              "displayName": "fee",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "start_date",
+              "displayName": "start_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "expiry_date",
+              "displayName": "expiry_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "payment_status",
+              "displayName": "payment_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_payment_date",
+              "displayName": "last_payment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_reminder_date",
+              "displayName": "last_reminder_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "member_status",
+              "displayName": "member_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "b6d9f1a0-1005-4c22-9a11-000000000005",
+      "name": "Google Sheets - Append Member",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Registration Successful - Crush Lifestyle Fitness Studio",
+        "completionMessage": "=Member registered successfully!\n\nMember Name: {{ $('Code - Generate Member Record').first().json.name }}\nMember ID: {{ $('Code - Generate Member Record').first().json.member_id }}\nMembership Plan: {{ $('Code - Generate Member Record').first().json.plan }}\nStart Date: {{ $('Code - Generate Member Record').first().json.start_date }}\nMembership Expiry Date: {{ $('Code - Generate Member Record').first().json.expiry_date }}\nPayment Status: {{ $('Code - Generate Member Record').first().json.payment_status }}",
+        "options": {}
+      },
+      "id": "b6d9f1a0-1006-4c22-9a11-000000000006",
+      "name": "Respond to Registration",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Registration Validation Failed",
+        "completionMessage": "=Unable to register member because some submitted details are invalid:\n\n{{ $('Code - Validate Registration').first().json.error_message }}\n\nPlease go back, correct the invalid fields, and submit the form again.",
+        "options": {}
+      },
+      "id": "b6d9f1a0-1007-4c22-9a11-000000000007",
+      "name": "Respond - Validation Error",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        780,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Registration Failed - Storage Error",
+        "completionMessage": "=Validation succeeded for {{ $('Code - Generate Member Record').first().json.name }} ({{ $('Code - Generate Member Record').first().json.member_id }}), but saving to Google Sheets failed.\n\nError: {{ $json.error?.message || $json.message || 'Google Sheets append operation failed. Check credentials, spreadsheet ID, and Members sheet tab.' }}\n\nThe member was NOT saved. Please verify Google Sheets credentials and spreadsheet selection in n8n.",
+        "options": {}
+      },
+      "id": "b6d9f1a0-1008-4c22-9a11-000000000008",
+      "name": "Respond - Storage Error",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "n8n Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate Registration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate Registration": {
+      "main": [
+        [
+          {
+            "node": "IF - Validation Passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Validation Passed": {
+      "main": [
+        [
+          {
+            "node": "Code - Generate Member Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Generate Member Record": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Append Member",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Append Member": {
+      "main": [
+        [
+          {
+            "node": "Respond to Registration",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Storage Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "Crush Lifestyle Fitness Studio"
+    },
+    {
+      "name": "GM-01"
+    }
+  ]
+}

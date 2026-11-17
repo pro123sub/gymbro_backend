@@ -1,0 +1,201 @@
+{
+  "name": "GM-05 - Autonomous AI Gym Manager & Accounts Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crush-ai-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b6d9f5a0-5001-4c22-9a11-000000000001",
+      "name": "Webhook - AI Agent Command & Email Inbound",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "gm05-crush-fitness-ai-agent"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw = $input.first().json || {};\nconst body = raw.body && typeof raw.body === 'object' ? raw.body : raw;\n\nlet message = '';\nlet actorRole = 'owner';\nlet actorPhone = '';\nlet actorEmail = '';\nlet memberId = null;\n\nconst waMsg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\nif (waMsg) {\n  message = String(waMsg.text?.body || '').trim();\n  actorPhone = String(waMsg.from || '').trim();\n  actorRole = 'member';\n} else if (body.from || body.sender_email || (body.subject && (body.text || body.body_text))) {\n  const subject = String(body.subject || '').trim();\n  const textBody = String(body.text || body.body_text || body.snippet || '').trim();\n  message = [subject, textBody].filter(Boolean).join(': ');\n  actorEmail = String(body.from || body.sender_email || body.email || '').trim().toLowerCase();\n  actorRole = ['owner', 'staff', 'member', 'n8n_autopilot'].includes(body.actor_role)\n    ? body.actor_role\n    : 'member';\n  memberId = body.member_id ? String(body.member_id).trim() : null;\n} else {\n  message = String(body.message || body.prompt || 'Run full gym autopilot').trim();\n  actorRole = ['owner', 'staff', 'member', 'n8n_autopilot'].includes(body.actor_role)\n    ? body.actor_role\n    : 'owner';\n  actorPhone = String(body.actor_phone || body.phone || '').trim();\n  actorEmail = String(body.actor_email || body.email || '').trim().toLowerCase();\n  memberId = body.member_id ? String(body.member_id).trim() : null;\n}\n\nif (!message) {\n  message = 'Run full gym autopilot';\n}\n\nreturn [{\n  json: {\n    message,\n    actor_role: actorRole,\n    actor_phone: actorPhone,\n    actor_email: actorEmail,\n    member_id: memberId,\n    sync_to_n8n: false,\n  },\n}];"
+      },
+      "id": "b6d9f5a0-5002-4c22-9a11-000000000002",
+      "name": "Code - Normalize Inbound Agent Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.FASTAPI_PUBLIC_URL || 'http://localhost:8000') + '/api/v1/agent/chat' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "b6d9f5a0-5003-4c22-9a11-000000000003",
+      "name": "HTTP Request - Execute Python AI Gym Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const res = $input.first().json || {};\nconst req = $('Code - Normalize Inbound Agent Request').first().json;\nconst nowIST = new Intl.DateTimeFormat('sv-SE', {\n  timeZone: 'Asia/Kolkata',\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n  hour: '2-digit',\n  minute: '2-digit',\n  second: '2-digit',\n  hour12: false,\n}).format(new Date()) + ' IST';\n\nif (res.error) {\n  return [{\n    json: {\n      log_id: `AGT-ERR-${Date.now().toString(36).toUpperCase().slice(-5)}`,\n      timestamp: nowIST,\n      workflow: 'GM-05',\n      member_id: req.member_id || 'STUDIO',\n      action: 'AGENT_ERROR',\n      status: 'FAILED',\n      details: `Python AI backend unreachable: ${res.error.message || JSON.stringify(res.error)}`,\n      reply: 'AI Gym Manager backend is currently unreachable. Please verify FASTAPI_PUBLIC_URL.',\n    },\n  }];\n}\n\nreturn [{\n  json: {\n    log_id: res.run_id || `AGT-${Date.now().toString(36).toUpperCase().slice(-6)}`,\n    timestamp: res.timestamp_ist || nowIST,\n    workflow: 'GM-05',\n    member_id: req.member_id || 'STUDIO',\n    action: res.intent || 'AGENT_RUN',\n    status: 'COMPLETED',\n    details: String(res.reply || '').slice(0, 450),\n    reply: res.reply || 'Done.',\n    tools_executed: res.tools_executed || [],\n    google_sheets_sync: res.google_sheets_sync || {},\n  },\n}];"
+      },
+      "id": "b6d9f5a0-5004-4c22-9a11-000000000004",
+      "name": "Code - Prepare Sheets Audit & Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Automation Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "log_id": "={{ $json.log_id }}",
+            "timestamp": "={{ $json.timestamp }}",
+            "workflow": "={{ $json.workflow }}",
+            "member_id": "={{ $json.member_id }}",
+            "action": "={{ $json.action }}",
+            "status": "={{ $json.status }}",
+            "details": "={{ $json.details }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "b6d9f5a0-5005-4c22-9a11-000000000005",
+      "name": "Google Sheets - Log AI Agent Action",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Code - Prepare Sheets Audit & Reply').first().json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "b6d9f5a0-5006-4c22-9a11-000000000006",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - AI Agent Command & Email Inbound": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Inbound Agent Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Inbound Agent Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Execute Python AI Gym Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Execute Python AI Gym Agent": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Sheets Audit & Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Sheets Audit & Reply": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Log AI Agent Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Log AI Agent Action": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "Crush Lifestyle Fitness Studio"
+    },
+    {
+      "name": "GM-05"
+    }
+  ]
+}

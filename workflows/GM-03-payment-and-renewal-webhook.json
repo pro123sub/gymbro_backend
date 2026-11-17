@@ -1,0 +1,303 @@
+{
+  "name": "GM-03 - Payment Webhook & Membership Renewal Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crush-payment-webhook",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "b6d9f3a0-3001-4c22-9a11-000000000001",
+      "name": "Webhook - Payment Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "gm03-crush-fitness-payment-webhook"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw = $input.first().json || {};\nconst payload = raw.body && typeof raw.body === 'object' ? raw.body : raw;\n\nlet memberId = '';\nlet amountPaid = 0;\nlet transactionRef = '';\nlet paymentMode = 'UPI';\nlet planOverride = '';\nlet source = 'direct';\n\nif (payload.event === 'payment_link.paid' && payload.payload?.payment_link?.entity) {\n  const entity = payload.payload.payment_link.entity;\n  memberId = String(entity.reference_id || '').trim();\n  amountPaid = Number(entity.amount_paid || entity.amount || 0) / 100;\n  transactionRef = String(entity.id || '').trim();\n  paymentMode = 'Razorpay';\n  source = 'razorpay_webhook';\n} else {\n  memberId = String(payload.member_id || '').trim();\n  amountPaid = Number(payload.amount_paid ?? payload.amount ?? 0);\n  transactionRef = String(payload.transaction_ref || payload.reference || `MANUAL-${Date.now()}`).trim();\n  paymentMode = String(payload.payment_mode || 'UPI').trim();\n  planOverride = String(payload.plan || '').trim();\n  source = String(payload.source || 'fastapi_backend').trim();\n}\n\nif (!memberId) {\n  throw new Error('Missing member_id in payment webhook payload.');\n}\nif (!Number.isFinite(amountPaid) || amountPaid <= 0) {\n  throw new Error('Payment amount_paid must be a positive number.');\n}\n\nreturn [{\n  json: {\n    member_id: memberId,\n    amount_paid: amountPaid,\n    transaction_ref: transactionRef,\n    payment_mode: paymentMode,\n    plan_override: planOverride,\n    source,\n  },\n}];"
+      },
+      "id": "b6d9f3a0-3002-4c22-9a11-000000000002",
+      "name": "Code - Parse & Validate Payment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Members",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "member_id",
+              "lookupValue": "={{ $json.member_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b6d9f3a0-3003-4c22-9a11-000000000003",
+      "name": "Google Sheets - Lookup Member",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const PLAN_DURATIONS = {\n  Monthly: 30,\n  Quarterly: 90,\n  'Half-Yearly': 180,\n  Yearly: 365,\n};\n\nconst pay = $('Code - Parse & Validate Payment').first().json;\nconst rows = $input.all().map((i) => i.json).filter((r) => r.member_id);\n\nif (rows.length === 0) {\n  throw new Error(`Member not found for member_id=${pay.member_id}`);\n}\n\nconst row = rows[0];\nconst today = new Intl.DateTimeFormat('en-CA', {\n  timeZone: 'Asia/Kolkata',\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n}).format(new Date());\n\nconst existingNotes = String(row.notes || '');\nconst refMarker = `Ref:${pay.transaction_ref}`;\nif (existingNotes.includes(refMarker)) {\n  return [{\n    json: {\n      already_processed: true,\n      member_id: row.member_id,\n      member_name: row.name,\n      message: `Duplicate webhook ignored for ${refMarker}`,\n      expiry_date: row.expiry_date,\n      payment_status: row.payment_status,\n    },\n  }];\n}\n\nfunction addDays(isoDate, days) {\n  const [y, m, d] = isoDate.split('-').map(Number);\n  const utcMs = Date.UTC(y, m - 1, d) + days * 86400000;\n  const dt = new Date(utcMs);\n  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;\n}\n\nconst activePlan = pay.plan_override && PLAN_DURATIONS[pay.plan_override] ? pay.plan_override : (row.plan || 'Monthly');\nconst durationDays = PLAN_DURATIONS[activePlan] || 30;\nconst isFirstPayment = !String(row.last_payment_date || '').trim();\nconst baseDate = String(row.expiry_date || '') > today ? String(row.expiry_date) : today;\nconst newExpiry = isFirstPayment && String(row.expiry_date || '').trim() ? String(row.expiry_date) : addDays(baseDate, durationDays);\n\nconst stamp = Date.now().toString(36).toUpperCase().slice(-6);\nconst paymentId = `PAY-${stamp}`;\nconst invoiceNumber = `INV-${today.replace(/-/g, '')}-${stamp.slice(-4)}`;\nconst updatedNotes = existingNotes ? `${existingNotes} | Paid:${today} ${refMarker}` : `Paid:${today} ${refMarker}`;\n\nreturn [{\n  json: {\n    already_processed: false,\n    payment_id: paymentId,\n    invoice_number: invoiceNumber,\n    member_id: row.member_id,\n    member_name: row.name,\n    phone: row.phone,\n    plan: activePlan,\n    amount_paid: pay.amount_paid,\n    payment_mode: pay.payment_mode,\n    transaction_ref: pay.transaction_ref,\n    payment_date: today,\n    new_expiry_date: newExpiry,\n    payment_status: 'Paid',\n    member_status: 'Active',\n    notes_update: updatedNotes,\n    status: 'Confirmed',\n  },\n}];"
+      },
+      "id": "b6d9f3a0-3004-4c22-9a11-000000000004",
+      "name": "Code - Compute Renewal & Invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Members",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "member_id": "={{ $json.member_id }}",
+            "plan": "={{ $json.plan }}",
+            "expiry_date": "={{ $json.new_expiry_date }}",
+            "payment_status": "={{ $json.payment_status }}",
+            "last_payment_date": "={{ $json.payment_date }}",
+            "member_status": "={{ $json.member_status }}",
+            "notes": "={{ $json.notes_update }}"
+          },
+          "matchingColumns": [
+            "member_id"
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "b6d9f3a0-3005-4c22-9a11-000000000005",
+      "name": "Google Sheets - Update Member Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Payments",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "payment_id": "={{ $('Code - Compute Renewal & Invoice').first().json.payment_id }}",
+            "invoice_number": "={{ $('Code - Compute Renewal & Invoice').first().json.invoice_number }}",
+            "member_id": "={{ $('Code - Compute Renewal & Invoice').first().json.member_id }}",
+            "member_name": "={{ $('Code - Compute Renewal & Invoice').first().json.member_name }}",
+            "phone": "={{ $('Code - Compute Renewal & Invoice').first().json.phone }}",
+            "plan": "={{ $('Code - Compute Renewal & Invoice').first().json.plan }}",
+            "amount_paid": "={{ $('Code - Compute Renewal & Invoice').first().json.amount_paid }}",
+            "payment_mode": "={{ $('Code - Compute Renewal & Invoice').first().json.payment_mode }}",
+            "transaction_ref": "={{ $('Code - Compute Renewal & Invoice').first().json.transaction_ref }}",
+            "payment_date": "={{ $('Code - Compute Renewal & Invoice').first().json.payment_date }}",
+            "new_expiry_date": "={{ $('Code - Compute Renewal & Invoice').first().json.new_expiry_date }}",
+            "status": "={{ $('Code - Compute Renewal & Invoice').first().json.status }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "b6d9f3a0-3006-4c22-9a11-000000000006",
+      "name": "Google Sheets - Append Payment Ledger",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.FASTAPI_PUBLIC_URL || 'http://localhost:8000') + '/api/v1/payments' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { member_id: $('Code - Compute Renewal & Invoice').first().json.member_id, amount_paid: $('Code - Compute Renewal & Invoice').first().json.amount_paid, payment_mode: $('Code - Compute Renewal & Invoice').first().json.payment_mode, transaction_ref: $('Code - Compute Renewal & Invoice').first().json.transaction_ref, plan: $('Code - Compute Renewal & Invoice').first().json.plan, extend_membership: true, notes: 'Synced from n8n GM-03' } }}",
+        "options": {}
+      },
+      "id": "b6d9f3a0-3008-4c22-9a11-000000000008",
+      "name": "HTTP Request - Sync Payment to Python Accounts Ledger",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Code - Compute Renewal & Invoice').first().json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "b6d9f3a0-3007-4c22-9a11-000000000007",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1820,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Payment Event": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse & Validate Payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse & Validate Payment": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Lookup Member",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Lookup Member": {
+      "main": [
+        [
+          {
+            "node": "Code - Compute Renewal & Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Compute Renewal & Invoice": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Update Member Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Update Member Status": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Append Payment Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Append Payment Ledger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Sync Payment to Python Accounts Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Sync Payment to Python Accounts Ledger": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "Crush Lifestyle Fitness Studio"
+    },
+    {
+      "name": "GM-03"
+    }
+  ]
+}

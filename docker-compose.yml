@@ -1,0 +1,15 @@
+services:
+  gymbro-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crush-fitness-backend
+    env_file:
+      - ./.env
+    environment:
+      - PORT=8000
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

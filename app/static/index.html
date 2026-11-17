@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crush Lifestyle Fitness Studio — Operations Console</title>
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --surface: #131924;
+      --surface-2: #1b2333;
+      --border: #273248;
+      --text: #f3f6fc;
+      --muted: #98a4bd;
+      --accent: #ff3278;
+      --accent-2: #ff6b35;
+      --green: #16c784;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --blue: #3b82f6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: Inter, system-ui, -apple-system, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; }
+    header {
+      background: linear-gradient(135deg, #151926, #1f1726);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 28px;
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: grid; place-items: center; font-weight: 800; font-size: 18px;
+    }
+    .brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+    .brand p { font-size: 12px; color: var(--muted); }
+    .pill { padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--border); color: var(--green); }
+    nav {
+      display: flex; gap: 8px; padding: 12px 28px; background: var(--surface);
+      border-bottom: 1px solid var(--border); overflow-x: auto;
+    }
+    .tab-btn {
+      background: transparent; color: var(--muted); border: 1px solid transparent;
+      padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; white-space: nowrap;
+    }
+    .tab-btn.active { background: linear-gradient(135deg, rgba(255,50,120,0.18), rgba(255,107,53,0.18)); color: var(--text); border-color: rgba(255,50,120,0.5); }
+    main { max-width: 1280px; margin: 24px auto; padding: 0 24px 48px; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px;
+    }
+    .kpi-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .kpi-value { font-size: 28px; font-weight: 800; margin-top: 8px; }
+    .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }
+    h2 { font-size: 16px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+    input, select {
+      width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--text); font-size: 13px;
+    }
+    button.primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff;
+      border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 13px;
+    }
+    button.secondary {
+      background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+      padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 12px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    .badge { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; display: inline-block; }
+    .b-green { background: rgba(22,199,132,0.16); color: var(--green); }
+    .b-amber { background: rgba(245,158,11,0.18); color: var(--amber); }
+    .b-red { background: rgba(239,68,68,0.18); color: var(--red); }
+    .b-blue { background: rgba(59,130,246,0.18); color: var(--blue); }
+    .toast {
+      margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 13px; display: none;
+      background: var(--surface-2); border: 1px solid var(--border);
+    }
+    .toast.show { display: block; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo">C</div>
+      <div>
+        <h1>Crush Lifestyle Fitness Studio</h1>
+        <p>Cult.fit-Grade Agentic AI Gym &amp; CFO Console &bull; FastAPI + n8n (GM-01 &ndash; GM-05) &bull; Asia/Kolkata</p>
+      </div>
+    </div>
+    <div class="pill" id="ist-clock">Live &bull; IST</div>
+  </header>
+
+  <nav>
+    <button class="tab-btn active" onclick="switchTab('dashboard', this)">Live KPI Dashboard</button>
+    <button class="tab-btn" onclick="switchTab('agent', this)">AI Agent Autopilot</button>
+    <button class="tab-btn" onclick="switchTab('accounts', this)">Accounts, GST &amp; Expenses</button>
+    <button class="tab-btn" onclick="switchTab('register', this)">Member Registration (GM-01)</button>
+    <button class="tab-btn" onclick="switchTab('attendance', this)">Attendance &amp; Streaks</button>
+    <button class="tab-btn" onclick="switchTab('followups', this)">Smart Follow-Up Queue</button>
+    <button class="tab-btn" onclick="switchTab('payments', this)">Payments &amp; Freeze</button>
+  </nav>
+
+  <main>
+    <!-- TAB 1: DASHBOARD -->
+    <section id="tab-dashboard" class="tab-panel active">
+      <div class="kpi-grid" id="kpi-cards"></div>
+      <div class="card">
+        <h2>
+          <span>Recent Members</span>
+          <button class="secondary" onclick="loadDashboard()">Refresh</button>
+        </h2>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Member ID</th><th>Name</th><th>Phone</th><th>Plan</th>
+                <th>Expiry</th><th>Payment</th><th>Status</th><th>Streak</th>
+              </tr>
+            </thead>
+            <tbody id="members-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: MEMBER REGISTRATION -->
+    <section id="tab-register" class="tab-panel">
+      <div class="card">
+        <h2>Register New Member (Syncs to GM-01 &amp; Follow-Up Engine)</h2>
+        <form id="register-form" onsubmit="submitRegistration(event)">
+          <div class="form-grid">
+            <div><label>Full Name *</label><input name="name" required placeholder="Rohit Kumar" /></div>
+            <div><label>Phone Number (Indian Mobile) *</label><input name="phone" required placeholder="9876543210" /></div>
+            <div><label>Email</label><input name="email" type="email" placeholder="rohit@example.com" /></div>
+            <div>
+              <label>Gender</label>
+              <select name="gender">
+                <option value="">Select</option>
+                <option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option>
+              </select>
+            </div>
+            <div><label>Date of Birth</label><input name="date_of_birth" type="date" /></div>
+            <div><label>Address</label><input name="address" placeholder="Jaipur, Rajasthan" /></div>
+            <div><label>Emergency Contact Name</label><input name="emergency_contact_name" /></div>
+            <div><label>Emergency Contact Phone</label><input name="emergency_contact_phone" placeholder="9811122334" /></div>
+            <div>
+              <label>Membership Plan *</label>
+              <select name="plan" required>
+                <option value="Monthly">Monthly (30 days)</option>
+                <option value="Quarterly">Quarterly (90 days)</option>
+                <option value="Half-Yearly">Half-Yearly (180 days)</option>
+                <option value="Yearly">Yearly (365 days)</option>
+              </select>
+            </div>
+            <div><label>Membership Fee (INR) *</label><input name="fee" type="number" min="0" required value="1500" /></div>
+            <div><label>Start Date *</label><input name="start_date" id="reg-start-date" type="date" required /></div>
+            <div>
+              <label>Payment Status *</label>
+              <select name="payment_status" required><option>Paid</option><option>Pending</option></select>
+            </div>
+            <div>
+              <label>Fitness Goal</label>
+              <select name="fitness_goal">
+                <option>Fat Loss</option><option>Muscle Gain</option><option>Strength &amp; Conditioning</option><option>General Fitness</option>
+              </select>
+            </div>
+            <div>
+              <label>Preferred Batch Slot</label>
+              <select name="batch_slot">
+                <option>Flexible</option><option>Morning 6AM-9AM</option><option>Evening 5PM-9PM</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:16px;">
+            <button type="submit" class="primary">Register Member</button>
+          </div>
+        </form>
+        <div id="register-toast" class="toast"></div>
+      </div>
+    </section>
+
+    <!-- TAB 3: ATTENDANCE -->
+    <section id="tab-attendance" class="tab-panel">
+      <div class="grid-2">
+        <div class="card">
+          <h2>Front-Desk / QR Check-In</h2>
+          <form onsubmit="submitCheckin(event)">
+            <div style="display:grid; gap:12px;">
+              <div><label>Member ID (e.g. MEM-XXXXXXXX)</label><input id="ci-member-id" placeholder="MEM-..." /></div>
+              <div><label>OR Phone Number</label><input id="ci-phone" placeholder="9876543210" /></div>
+              <div>
+                <label>Workout Type</label>
+                <select id="ci-workout">
+                  <option>Gym Floor</option><option>Strength &amp; Conditioning</option>
+                  <option>HIIT / Burn</option><option>Yoga / Mobility</option><option>Personal Training</option>
+                </select>
+              </div>
+              <button type="submit" class="primary">Check In Member</button>
+            </div>
+          </form>
+          <div id="ci-toast" class="toast"></div>
+        </div>
+        <div class="card">
+          <h2>Today's Check-Ins <button class="secondary" onclick="loadAttendance()">Refresh</button></h2>
+          <table>
+            <thead><tr><th>Time</th><th>Member</th><th>Workout</th><th>Streak</th></tr></thead>
+            <tbody id="attendance-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: FOLLOW-UPS -->
+    <section id="tab-followups" class="tab-panel">
+      <div class="card">
+        <h2>
+          <span>Smart Retention &amp; Follow-Up Queue</span>
+          <div style="display:flex; gap:8px;">
+            <button class="secondary" onclick="loadFollowUps()">Evaluate Now</button>
+            <button class="primary" onclick="dispatchFollowUps()">Dispatch to n8n (GM-02)</button>
+          </div>
+        </h2>
+        <div id="fu-toast" class="toast"></div>
+        <div style="overflow-x:auto; margin-top:10px;">
+          <table>
+            <thead>
+              <tr><th>Priority</th><th>Type</th><th>Member</th><th>Phone</th><th>Expiry</th><th>Suggested WhatsApp Message</th></tr>
+            </thead>
+            <tbody id="followups-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: PAYMENTS & FREEZE -->
+    <section id="tab-payments" class="tab-panel">
+      <div class="grid-2">
+        <div class="card">
+          <h2>Record Payment / Renewal (GM-03)</h2>
+          <form onsubmit="submitPayment(event)">
+            <div style="display:grid; gap:12px;">
+              <div><label>Member ID *</label><input id="pay-member-id" required placeholder="MEM-XXXXXXXX" /></div>
+              <div><label>Amount Paid (INR) *</label><input id="pay-amount" type="number" min="1" required value="1500" /></div>
+              <div>
+                <label>Payment Mode</label>
+                <select id="pay-mode"><option>UPI</option><option>Cash</option><option>Card</option><option>Razorpay</option></select>
+              </div>
+              <div><label>Transaction Ref (Optional)</label><input id="pay-ref" placeholder="UPI-123456" /></div>
+              <button type="submit" class="primary">Confirm Payment &amp; Extend</button>
+            </div>
+          </form>
+          <div id="pay-toast" class="toast"></div>
+        </div>
+
+        <div class="card">
+          <h2>Freeze / Pause Membership (Cult.fit Style)</h2>
+          <form onsubmit="submitFreeze(event)">
+            <div style="display:grid; gap:12px;">
+              <div><label>Member ID *</label><input id="frz-member-id" required placeholder="MEM-XXXXXXXX" /></div>
+              <div><label>Freeze Days *</label><input id="frz-days" type="number" min="1" max="30" required value="7" /></div>
+              <div><label>Reason</label><input id="frz-reason" value="Outstation Travel" /></div>
+              <button type="submit" class="primary">Freeze &amp; Extend Expiry</button>
+            </div>
+          </form>
+          <div id="frz-toast" class="toast"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 6: AI AGENT AUTOPILOT -->
+    <section id="tab-agent" class="tab-panel">
+      <div class="grid-2">
+        <div class="card">
+          <h2>Crush AI Gym Manager &amp; CFO Agent (GM-05)</h2>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
+            <button class="secondary" onclick="runQuickAgent('Run full gym autopilot')">Run Full Gym Autopilot</button>
+            <button class="secondary" onclick="runQuickAgent('Show CFO accounts and GST P&L summary')">Show CFO Accounts &amp; GST P&amp;L</button>
+            <button class="secondary" onclick="runQuickAgent('Evaluate and dispatch due retention follow-ups')">Sweep Due Follow-Ups</button>
+            <button class="secondary" onclick="runQuickAgent('Check pending receivables and overdue dues')">Check Overdue Receivables</button>
+          </div>
+          <form onsubmit="submitAgentChat(event)">
+            <div style="display:grid; gap:12px;">
+              <div>
+                <label>Command or Question</label>
+                <input id="agent-prompt" required placeholder="e.g. Record electricity expense Rs. 4200 or Register Rohan phone 9876543210 quarterly paid 4000" />
+              </div>
+              <div>
+                <label>Actor Role</label>
+                <select id="agent-role"><option value="owner">Owner (Full Access)</option><option value="staff">Front-Desk Staff</option><option value="member">Member (Self-Service Scoped)</option></select>
+              </div>
+              <button type="submit" class="primary">Execute AI Agent Command</button>
+            </div>
+          </form>
+          <div id="agent-toast" class="toast"></div>
+          <pre id="agent-tools-trace" style="margin-top:12px; padding:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; font-size:12px; overflow-x:auto; color:var(--muted); max-height:260px;"></pre>
+        </div>
+
+        <div class="card">
+          <h2>Recent Agent Runs <button class="secondary" onclick="loadAgentRuns()">Refresh</button></h2>
+          <table>
+            <thead><tr><th>Run ID</th><th>Intent</th><th>Role</th><th>Summary</th></tr></thead>
+            <tbody id="agent-runs-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 7: ACCOUNTS, GST & EXPENSES -->
+    <section id="tab-accounts" class="tab-panel">
+      <div class="kpi-grid" id="accounts-kpis"></div>
+      <div class="grid-2">
+        <div class="card">
+          <h2>Record Operating Expense</h2>
+          <form onsubmit="submitExpense(event)">
+            <div style="display:grid; gap:12px;">
+              <div>
+                <label>Category *</label>
+                <select id="exp-category">
+                  <option>Rent</option><option>Trainer Salaries</option><option>Electricity &amp; Utilities</option>
+                  <option>Equipment Maintenance</option><option>Marketing</option><option>Supplements &amp; Inventory</option>
+                  <option>Software &amp; SaaS</option><option>Other</option>
+                </select>
+              </div>
+              <div><label>Amount (INR) *</label><input id="exp-amount" type="number" min="1" required value="3500" /></div>
+              <div><label>Vendor</label><input id="exp-vendor" placeholder="Vendor / Utility provider" /></div>
+              <div>
+                <label>Payment Mode</label>
+                <select id="exp-mode"><option>UPI</option><option>Bank Transfer</option><option>Cash</option><option>Card</option></select>
+              </div>
+              <div><label>Notes</label><input id="exp-notes" placeholder="November bill" /></div>
+              <button type="submit" class="primary">Record Expense</button>
+            </div>
+          </form>
+          <div id="exp-toast" class="toast"></div>
+        </div>
+        <div class="card">
+          <h2>Recent Expenses &amp; Receivables Aging <button class="secondary" onclick="loadAccounts()">Refresh</button></h2>
+          <div id="receivables-aging" style="margin-bottom:12px; font-size:13px; color:var(--muted);"></div>
+          <table>
+            <thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Amount</th></tr></thead>
+            <tbody id="expenses-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById('reg-start-date').value = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+    function switchTab(name, btn) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      btn.classList.add('active');
+      if (name === 'dashboard') loadDashboard();
+      if (name === 'agent') loadAgentRuns();
+      if (name === 'accounts') loadAccounts();
+      if (name === 'attendance') loadAttendance();
+      if (name === 'followups') loadFollowUps();
+    }
+
+    function showToast(id, html, isError = false) {
+      const el = document.getElementById(id);
+      el.innerHTML = html;
+      el.style.borderColor = isError ? 'var(--red)' : 'var(--green)';
+      el.classList.add('show');
+    }
+
+    async function loadDashboard() {
+      const [kpiRes, memRes] = await Promise.all([
+        fetch('/api/v1/analytics/dashboard'),
+        fetch('/api/v1/members')
+      ]);
+      const kpi = await kpiRes.json();
+      const mem = await memRes.json();
+      document.getElementById('ist-clock').textContent = kpi.as_of_ist;
+
+      const cards = [
+        ['Active Members', kpi.active_members, `Total: ${kpi.total_members}`],
+        ['Expiring <= 7d', kpi.expiring_in_7_days, `Expired: ${kpi.expired_members}`],
+        ['Pending Dues', `Rs.${kpi.pending_dues_amount}`, `${kpi.pending_dues_count} members`],
+        ['Collections Today', `Rs.${kpi.collections_today}`, `Total: Rs.${kpi.total_revenue_collected}`],
+        ['Check-Ins Today', kpi.checkins_today, `At-Risk Inactive: ${kpi.at_risk_inactive_count}`],
+        ['Due Follow-Ups', kpi.due_followups_count, `Frozen: ${kpi.frozen_members}`],
+      ];
+      document.getElementById('kpi-cards').innerHTML = cards.map(([l, v, s]) =>
+        `<div class="card"><div class="kpi-label">${l}</div><div class="kpi-value">${v}</div><div class="kpi-sub">${s}</div></div>`
+      ).join('');
+
+      document.getElementById('members-table').innerHTML = (mem.members || []).map(m => `
+        <tr>
+          <td><code>${m.member_id}</code></td>
+          <td><strong>${m.name}</strong></td>
+          <td>${m.phone}</td>
+          <td>${m.plan}</td>
+          <td>${m.expiry_date} (${m.days_remaining}d)</td>
+          <td><span class="badge ${m.payment_status === 'Paid' ? 'b-green' : 'b-amber'}">${m.payment_status}</span></td>
+          <td><span class="badge ${m.member_status === 'Active' ? 'b-green' : m.member_status === 'Frozen' ? 'b-blue' : 'b-red'}">${m.member_status}</span></td>
+          <td>${m.current_streak}d</td>
+        </tr>
+      `).join('') || '<tr><td colspan="8" style="color:var(--muted)">No members yet. Register your first member!</td></tr>';
+    }
+
+    async function submitRegistration(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const body = Object.fromEntries(fd.entries());
+      body.fee = Number(body.fee);
+      const res = await fetch('/api/v1/members', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) return showToast('register-toast', `Error: ${JSON.stringify(data.detail)}`, true);
+      showToast('register-toast', `Registered <strong>${data.member.name}</strong> (${data.member.member_id}) &bull; Expiry: <strong>${data.member.expiry_date}</strong>`);
+      e.target.reset();
+      document.getElementById('reg-start-date').value = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    }
+
+    async function submitCheckin(e) {
+      e.preventDefault();
+      const res = await fetch('/api/v1/attendance/check-in', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          member_id: document.getElementById('ci-member-id').value || null,
+          phone: document.getElementById('ci-phone').value || null,
+          workout_type: document.getElementById('ci-workout').value,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) return showToast('ci-toast', `Blocked: ${data.detail}`, true);
+      showToast('ci-toast', `Checked in <strong>${data.member_name}</strong> &bull; Current Streak: <strong>${data.current_streak}d</strong> ${data.milestone || ''}`);
+      loadAttendance();
+    }
+
+    async function loadAttendance() {
+      const res = await fetch('/api/v1/attendance/today');
+      const data = await res.json();
+      document.getElementById('attendance-table').innerHTML = (data.checkins || []).map(c =>
+        `<tr><td>${c.checkin_time_ist.split(' ')[1]}</td><td>${c.name}</td><td>${c.workout_type}</td><td>${c.streak_after_checkin}d</td></tr>`
+      ).join('') || '<tr><td colspan="4" style="color:var(--muted)">No check-ins yet today.</td></tr>';
+    }
+
+    async function loadFollowUps() {
+      const res = await fetch('/api/v1/follow-ups/due');
+      const data = await res.json();
+      document.getElementById('followups-table').innerHTML = (data.follow_ups || []).map(f => `
+        <tr>
+          <td><span class="badge ${f.priority === 'CRITICAL' ? 'b-red' : f.priority === 'HIGH' ? 'b-amber' : 'b-blue'}">${f.priority}</span></td>
+          <td><code>${f.followup_type}</code></td>
+          <td>${f.name} (${f.member_id})</td>
+          <td>${f.phone}</td>
+          <td>${f.expiry_date} (${f.days_until_expiry}d)</td>
+          <td>${f.message_text}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="6" style="color:var(--muted)">All caught up! No follow-ups due right now.</td></tr>';
+    }
+
+    async function dispatchFollowUps() {
+      const res = await fetch('/api/v1/follow-ups/dispatch', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({})
+      });
+      const data = await res.json();
+      showToast('fu-toast', `Processed <strong>${data.dispatched_count}</strong> follow-up task(s) and updated logs.`);
+      loadFollowUps();
+    }
+
+    async function submitPayment(e) {
+      e.preventDefault();
+      const res = await fetch('/api/v1/payments', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          member_id: document.getElementById('pay-member-id').value,
+          amount_paid: Number(document.getElementById('pay-amount').value),
+          payment_mode: document.getElementById('pay-mode').value,
+          transaction_ref: document.getElementById('pay-ref').value,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) return showToast('pay-toast', `Error: ${data.detail}`, true);
+      showToast('pay-toast', `Invoice <strong>${data.payment.invoice_number}</strong> confirmed! New Expiry: <strong>${data.member.expiry_date}</strong>`);
+    }
+
+    async function submitFreeze(e) {
+      e.preventDefault();
+      const mid = document.getElementById('frz-member-id').value;
+      const res = await fetch(`/api/v1/members/${encodeURIComponent(mid)}/freeze`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          freeze_days: Number(document.getElementById('frz-days').value),
+          reason: document.getElementById('frz-reason').value,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) return showToast('frz-toast', `Error: ${data.detail}`, true);
+      showToast('frz-toast', `Membership frozen until <strong>${data.frozen_until}</strong>. Extended expiry: <strong>${data.new_expiry}</strong>`);
+    }
+
+    function runQuickAgent(text) {
+      document.getElementById('agent-prompt').value = text;
+      submitAgentChat({ preventDefault: () => {} });
+    }
+
+    async function submitAgentChat(e) {
+      e.preventDefault();
+      const res = await fetch('/api/v1/agent/chat', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          message: document.getElementById('agent-prompt').value,
+          actor_role: document.getElementById('agent-role').value,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) return showToast('agent-toast', `Error: ${JSON.stringify(data.detail)}`, true);
+      showToast('agent-toast', `<strong>[${data.intent}]</strong> ${data.reply}`);
+      document.getElementById('agent-tools-trace').textContent = JSON.stringify(data.tools_executed, null, 2);
+      loadAgentRuns();
+    }
+
+    async function loadAgentRuns() {
+      const res = await fetch('/api/v1/agent/runs');
+      const data = await res.json();
+      document.getElementById('agent-runs-table').innerHTML = (data.runs || []).slice(0, 10).map(r =>
+        `<tr><td><code>${r.run_id}</code></td><td>${r.intent}</td><td>${r.actor_role}</td><td>${r.reply}</td></tr>`
+      ).join('') || '<tr><td colspan="4" style="color:var(--muted)">No agent runs yet.</td></tr>';
+    }
+
+    async function loadAccounts() {
+      const res = await fetch('/api/v1/accounts/summary');
+      const acc = await res.json();
+      const cards = [
+        ['Gross Collections', `Rs.${acc.gross_collections}`, `Today: Rs.${acc.collections_today}`],
+        ['18% GST Liability', `Rs.${acc.total_gst_collected}`, `CGST: Rs.${acc.cgst_collected} | SGST: Rs.${acc.sgst_collected}`],
+        ['Net Revenue (Ex-GST)', `Rs.${acc.net_revenue_ex_gst}`, `Pending: Rs.${acc.pending_receivables_amount}`],
+        ['Total Expenses', `Rs.${acc.total_expenses}`, `Today: Rs.${acc.expenses_today}`],
+        ['Net Profit (P&L)', `Rs.${acc.net_profit}`, `Margin: ${acc.profit_margin_pct}%`],
+      ];
+      document.getElementById('accounts-kpis').innerHTML = cards.map(([l, v, s]) =>
+        `<div class="card"><div class="kpi-label">${l}</div><div class="kpi-value">${v}</div><div class="kpi-sub">${s}</div></div>`
+      ).join('');
+      document.getElementById('receivables-aging').innerHTML =
+        `Receivables Aging: <strong>0-7d:</strong> Rs.${acc.receivables_aging['0_7_days']} | <strong>8-30d:</strong> Rs.${acc.receivables_aging['8_30_days']} | <strong>30d+:</strong> Rs.${acc.receivables_aging['over_30_days']}`;
+      document.getElementById('expenses-table').innerHTML = (acc.recent_expenses || []).map(x =>
+        `<tr><td>${x.expense_date}</td><td>${x.category}</td><td>${x.vendor || '-'}</td><td>Rs.${x.amount}</td></tr>`
+      ).join('') || '<tr><td colspan="4" style="color:var(--muted)">No expenses recorded yet.</td></tr>';
+    }
+
+    async function submitExpense(e) {
+      e.preventDefault();
+      const res = await fetch('/api/v1/accounts/expenses', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          category: document.getElementById('exp-category').value,
+          amount: Number(document.getElementById('exp-amount').value),
+          vendor: document.getElementById('exp-vendor').value,
+          payment_mode: document.getElementById('exp-mode').value,
+          notes: document.getElementById('exp-notes').value,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) return showToast('exp-toast', `Error: ${JSON.stringify(data.detail)}`, true);
+      showToast('exp-toast', `Recorded expense <strong>${data.expense.expense_id}</strong> (Rs.${data.expense.amount})`);
+      loadAccounts();
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
