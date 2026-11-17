@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 import secrets
 import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from .config import get_settings, timestamp_ist_str
 from .database import get_db, init_db
 from .routers import accounts, agent, attendance, automations, followups, members, n8n_webhooks, payments
 from .services import n8n_client
-
-STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 @asynccontextmanager
@@ -80,9 +77,12 @@ def create_app() -> FastAPI:
     app.include_router(automations.router)
     app.include_router(n8n_webhooks.router)
 
-    @app.get("/", include_in_schema=False)
-    def serve_console():
-        return FileResponse(STATIC_DIR / "index.html")
+    @app.get("/", include_in_schema=False, response_class=HTMLResponse)
+    def serve_home():
+        return HTMLResponse(
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>GymBro Backend</title></head>"
+            "<body><h1>Welcome to Gymbero your app is healthy</h1></body></html>"
+        )
 
     @app.get("/health", tags=["System"])
     def health_check():

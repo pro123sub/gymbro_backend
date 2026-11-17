@@ -338,6 +338,11 @@ def _create_member(
 
 
 def test_01_health_and_system_info_headers(client: AsgiTestClient):
+    home = client.get("/")
+    assert home.status_code == 200
+    assert "text/html" in home.headers.get("content-type", "")
+    assert "Welcome to Gymbero your app is healthy" in home.text
+
     h = client.get("/health", headers={"X-Request-ID": "req-custom-001", "X-Tenant-ID": "crush-hyd-01"})
     assert h.status_code == 200
     assert h.json()["status"] == "ok"
