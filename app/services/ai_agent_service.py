@@ -493,6 +493,21 @@ def _deterministic_react_plan(req: AgentChatRequest) -> tuple[str, list[tuple[st
     return "AUTOPILOT", [("run_full_gym_autopilot", {})]
 
 
+TOOL_TO_INTENT: dict[str, str] = {
+    "register_new_member": "REGISTER_MEMBER",
+    "record_gym_expense": "RECORD_EXPENSE",
+    "get_accounts_and_pnl_summary": "ACCOUNTS_PNL",
+    "evaluate_and_dispatch_followups": "FOLLOWUP_SWEEP",
+    "freeze_member_plan": "FREEZE_PLAN",
+    "unfreeze_member_plan": "UNFREEZE_PLAN",
+    "get_streak_leaderboard": "LEADERBOARD",
+    "checkin_member_attendance": "CHECKIN",
+    "record_member_payment": "RECORD_PAYMENT",
+    "lookup_member_360": "MEMBER_LOOKUP",
+    "run_full_gym_autopilot": "AUTOPILOT",
+}
+
+
 async def _try_llm_tool_plan(req: AgentChatRequest) -> tuple[str, list[AgentToolExecution], str] | None:
     """Attempt live OpenAI-compatible function calling if LLM_API_KEY is configured."""
     settings = get_settings()
@@ -534,6 +549,12 @@ async def _try_llm_tool_plan(req: AgentChatRequest) -> tuple[str, list[AgentTool
                 executions.append(AgentToolExecution(tool_name=fn_name, arguments=fn_args, result=out))
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(out, default=str)})
 
+            primary_tool = next(
+                (ex.tool_name for ex in executions if ex.tool_name != "lookup_member_360"),
+                executions[0].tool_name if executions else "",
+            )
+            semantic_intent = TOOL_TO_INTENT.get(primary_tool, "LLM_TOOL_CALL")
+
             final_resp = await client.post(
                 f"{settings.llm_base_url.rstrip('/')}/chat/completions",
                 headers=headers,
@@ -544,7 +565,7 @@ async def _try_llm_tool_plan(req: AgentChatRequest) -> tuple[str, list[AgentTool
                 if final_resp.status_code < 300
                 else "Tools executed successfully."
             )
-            return ("LLM_TOOL_CALL", executions, reply_text)
+            return (semantic_intent, executions, reply_text)
     except Exception:
         return None
 

@@ -40,16 +40,18 @@ WORKFLOW_SEED_ROWS = [
         "",
         "Asia/Kolkata",
         "/webhook/crush-member-registration",
+        "TyvdBoE1S0x0CqEh",
         1,
     ),
     (
         "GM-02",
         "GM-02 - Smart Expiry, Dues & Onboarding Follow-Up Cadence",
-        "Daily 9AM IST multi-stage WhatsApp retention cadence with FastAPI callback",
+        "Daily 9AM IST multi-stage Email (Gmail) retention cadence with FastAPI callback",
         "schedule",
         "0 9 * * *",
         "Asia/Kolkata",
         "/webhook/crush-gm02-followup",
+        "iF0yxmS2iQOl5yg4",
         1,
     ),
     (
@@ -60,6 +62,7 @@ WORKFLOW_SEED_ROWS = [
         "",
         "Asia/Kolkata",
         "/webhook/crush-payment-webhook",
+        "aEx0lIp361veuGZm",
         1,
     ),
     (
@@ -70,16 +73,18 @@ WORKFLOW_SEED_ROWS = [
         "0 21 * * *",
         "Asia/Kolkata",
         "/webhook/crush-gm04-digest",
+        "2CmWRbhlVxDhCeCk",
         1,
     ),
     (
         "GM-05",
         "GM-05 - Autonomous AI Gym Manager & Accounts Agent",
-        "Bidirectional WhatsApp & Owner command bridge to FastAPI AI Gym Manager & CFO Agent",
+        "Bidirectional Email & Owner command bridge to FastAPI AI Gym Manager & CFO Agent",
         "webhook",
         "",
         "Asia/Kolkata",
         "/webhook/crush-ai-agent",
+        "LLxGJlLf6cBj5jBx",
         1,
     ),
 ]
@@ -328,11 +333,20 @@ def _seed_defaults_locked(conn: sqlite3.Connection) -> None:
         """
         INSERT OR IGNORE INTO workflow_registry (
             workflow_code, name, description, trigger_type, cron_expression,
-            timezone, webhook_path, is_enabled, updated_at_ist
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            timezone, webhook_path, n8n_workflow_id, is_enabled, updated_at_ist
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [(*row, now_ist) for row in WORKFLOW_SEED_ROWS],
     )
+    for wf_row in WORKFLOW_SEED_ROWS:
+        conn.execute(
+            """
+            UPDATE workflow_registry
+            SET n8n_workflow_id = ?, description = ?, updated_at_ist = ?
+            WHERE workflow_code = ? AND n8n_workflow_id = ''
+            """,
+            (wf_row[7], wf_row[2], now_ist, wf_row[0]),
+        )
     conn.commit()
 
 
