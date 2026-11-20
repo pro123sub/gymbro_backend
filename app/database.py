@@ -1,4 +1,4 @@
-"""Google Sheets-Native Workbook persistence engine (zero external database server required)."""
+"""Master PostgreSQL + Google Sheets Presentation Persistence Engine."""
 
 from __future__ import annotations
 
@@ -8,6 +8,13 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import urlparse
+
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:  # pragma: no cover - optional when running SQLite/Sheets fallback only
+    psycopg2 = None  # type: ignore[assignment]
 
 from .config import get_settings, timestamp_ist_str
 
@@ -35,7 +42,7 @@ WORKFLOW_SEED_ROWS = [
     (
         "GM-01",
         "GM-01 - Gym Member Registration",
-        "Intake form validation, Indian mobile normalization, MEM-XXXXXXXX generation, and Google Sheets append",
+        "Intake validation, MEM-XXXXXXXX generation, Master PostgreSQL upsert, and formatted Google Sheets append",
         "form",
         "",
         "Asia/Kolkata",
@@ -46,7 +53,7 @@ WORKFLOW_SEED_ROWS = [
     (
         "GM-02",
         "GM-02 - Smart Expiry, Dues & Onboarding Follow-Up Cadence",
-        "Daily 9AM IST multi-stage Email (Gmail) retention cadence with FastAPI callback",
+        "Daily 9AM IST multi-stage Email (Gmail) retention cadence synced to Master PostgreSQL & Sheets",
         "schedule",
         "0 9 * * *",
         "Asia/Kolkata",
@@ -57,7 +64,7 @@ WORKFLOW_SEED_ROWS = [
     (
         "GM-03",
         "GM-03 - Payment Webhook & Membership Renewal Engine",
-        "Idempotent Razorpay & FastAPI payment settlement, expiry extension, and GST ledger sync",
+        "Idempotent Razorpay & FastAPI payment settlement into Master PostgreSQL first, then GST Ledger & Sheets",
         "webhook",
         "",
         "Asia/Kolkata",
@@ -68,7 +75,7 @@ WORKFLOW_SEED_ROWS = [
     (
         "GM-04",
         "GM-04 - Daily Owner Digest & Inactivity Follow-Up",
-        "Daily 9PM IST KPI digest, churn radar, and autonomous AI P&L audit",
+        "Daily 9PM IST automated KPI trends, churn radar, and autonomous AI P&L audit",
         "schedule",
         "0 21 * * *",
         "Asia/Kolkata",
@@ -79,7 +86,7 @@ WORKFLOW_SEED_ROWS = [
     (
         "GM-05",
         "GM-05 - Autonomous AI Gym Manager & Accounts Agent",
-        "Bidirectional Email & Owner command bridge to FastAPI AI Gym Manager & CFO Agent",
+        "Bidirectional Email & Owner command bridge to Master PostgreSQL, OpenAI Agent & Sheets",
         "webhook",
         "",
         "Asia/Kolkata",
@@ -103,6 +110,21 @@ TAB_TABLE_ORDER: list[tuple[str, str]] = [
     ("Agent Runs", "agent_runs"),
     ("Scheduled Jobs", "scheduled_automation_jobs"),
 ]
+
+TABLE_PRIMARY_KEYS: dict[str, str] = {
+    "membership_plans": "plan_id",
+    "members": "member_id",
+    "workflow_registry": "workflow_code",
+    "payments": "payment_id",
+    "attendance": "attendance_id",
+    "membership_freezes": "freeze_id",
+    "follow_up_logs": "log_id",
+    "automation_logs": "log_id",
+    "gym_settings": "setting_key",
+    "expenses": "expense_id",
+    "agent_runs": "run_id",
+    "scheduled_automation_jobs": "job_id",
+}
 
 TAB_NAME_TO_TABLE: dict[str, str] = {tab: tbl for tab, tbl in TAB_TABLE_ORDER}
 TAB_NAME_LOOKUP: dict[str, str] = {tab.lower(): tab for tab, _ in TAB_TABLE_ORDER}
@@ -294,14 +316,147 @@ CREATE TABLE IF NOT EXISTS scheduled_automation_jobs (
 );
 """
 
+_PG_SCHEMA_SQL = _SCHEMA_SQL.replace(" REAL ", " DOUBLE PRECISION ")
+
 _STORE_LOCK = threading.RLock()
 _MEM_CONN: sqlite3.Connection | None = None
-_ACTIVE_WORKBOOK_KEY: str | None = None
+_ACTIVE_STORE_KEY: tuple[str, str] | None = None
+_PG_CONN: Any = None
+_PG_CONNECTED: bool = False
+_PG_LAST_ERROR: str = ""
+_PG_LAST_SYNC_IST: str = ""
 _TX_DEPTH = 0
 
 
 def _resolved_workbook_path() -> Path:
     return Path(get_settings().google_sheets_workbook_path).expanduser().resolve()
+
+
+def _configured_database_url() -> str:
+    return (get_settings().database_url or "").strip()
+
+
+def _is_postgres_enabled() -> bool:
+    url = _configured_database_url().lower()
+    return url.startswith("postgres://") or url.startswith("postgresql://")
+
+
+def _open_pg_connection(dsn: str) -> Any:
+    if psycopg2 is None:
+        raise RuntimeError("psycopg2-binary is required when DATABASE_URL is configured.")
+    kwargs: dict[str, Any] = {"connect_timeout": 10}
+    if "sslmode=" not in dsn.lower():
+        kwargs["sslmode"] = "require"
+    conn = psycopg2.connect(dsn, **kwargs)
+    conn.autocommit = False
+    return conn
+
+
+def _get_pg_connection_locked() -> Any:
+    global _PG_CONN, _PG_CONNECTED, _PG_LAST_ERROR
+    dsn = _configured_database_url()
+    if _PG_CONN is not None and not getattr(_PG_CONN, "closed", 1):
+        return _PG_CONN
+    _PG_CONN = _open_pg_connection(dsn)
+    _PG_CONNECTED = True
+    _PG_LAST_ERROR = ""
+    return _PG_CONN
+
+
+def _close_pg_connection_locked() -> None:
+    global _PG_CONN, _PG_CONNECTED
+    if _PG_CONN is not None:
+        try:
+            _PG_CONN.close()
+        except Exception:
+            pass
+    _PG_CONN = None
+    _PG_CONNECTED = False
+
+
+def _init_pg_schema_locked(pg_conn: Any) -> None:
+    with pg_conn.cursor() as cur:
+        cur.execute(_PG_SCHEMA_SQL)
+    pg_conn.commit()
+
+
+def _fetch_all_from_pg_locked() -> dict[str, list[dict[str, Any]]]:
+    global _PG_CONNECTED, _PG_LAST_ERROR
+    pg_conn = _get_pg_connection_locked()
+    try:
+        _init_pg_schema_locked(pg_conn)
+        tabs: dict[str, list[dict[str, Any]]] = {}
+        with pg_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            for tab_name, table_name in TAB_TABLE_ORDER:
+                cur.execute(f"SELECT * FROM {table_name}")
+                tabs[tab_name] = [dict(r) for r in cur.fetchall()]
+        pg_conn.commit()
+        _PG_CONNECTED = True
+        _PG_LAST_ERROR = ""
+        return tabs
+    except Exception as exc:
+        _close_pg_connection_locked()
+        _PG_LAST_ERROR = str(exc)
+        raise
+
+
+def _sync_to_master_postgres_locked(conn: sqlite3.Connection) -> None:
+    """Persist mutations to the Master Render PostgreSQL database first inside one ACID tx."""
+    global _PG_CONNECTED, _PG_LAST_ERROR, _PG_LAST_SYNC_IST
+    if not _is_postgres_enabled():
+        return
+
+    for attempt in range(2):
+        pg_conn = _get_pg_connection_locked()
+        try:
+            with pg_conn.cursor() as cur:
+                # 1. Remove deleted rows in reverse dependency order (children first)
+                for _, table_name in reversed(TAB_TABLE_ORDER):
+                    pk_col = TABLE_PRIMARY_KEYS[table_name]
+                    local_pks = [r[0] for r in conn.execute(f"SELECT {pk_col} FROM {table_name}").fetchall()]
+                    if not local_pks:
+                        cur.execute(f"DELETE FROM {table_name}")
+                    else:
+                        cur.execute(
+                            f"DELETE FROM {table_name} WHERE NOT ({pk_col} = ANY(%s))",
+                            (local_pks,),
+                        )
+
+                # 2. Upsert active rows in parent-to-child dependency order
+                for _, table_name in TAB_TABLE_ORDER:
+                    pk_col = TABLE_PRIMARY_KEYS[table_name]
+                    rows = conn.execute(f"SELECT * FROM {table_name}").fetchall()
+                    if not rows:
+                        continue
+                    cols = list(rows[0].keys())
+                    cols_sql = ", ".join(cols)
+                    update_cols = [c for c in cols if c != pk_col]
+                    update_sql = (
+                        ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+                        if update_cols
+                        else f"{pk_col} = EXCLUDED.{pk_col}"
+                    )
+                    values = [tuple(r[c] for c in cols) for r in rows]
+                    psycopg2.extras.execute_values(
+                        cur,
+                        f"INSERT INTO {table_name} ({cols_sql}) VALUES %s "
+                        f"ON CONFLICT ({pk_col}) DO UPDATE SET {update_sql}",
+                        values,
+                    )
+            pg_conn.commit()
+            _PG_CONNECTED = True
+            _PG_LAST_ERROR = ""
+            _PG_LAST_SYNC_IST = timestamp_ist_str()
+            return
+        except Exception as exc:
+            try:
+                pg_conn.rollback()
+            except Exception:
+                pass
+            _close_pg_connection_locked()
+            _PG_LAST_ERROR = str(exc)
+            if attempt == 1:
+                raise
 
 
 def _create_fresh_memory_conn() -> sqlite3.Connection:
@@ -358,9 +513,11 @@ def _hydrate_conn_from_dict_locked(conn: sqlite3.Connection, workbook_data: dict
     now_str = timestamp_ist_str()
     conn.execute("PRAGMA foreign_keys=OFF;")
     try:
-        # Delete children first then parents, and re-insert parents before children.
         for _, table_name in reversed(TAB_TABLE_ORDER):
-            tab_key = next((k for k in tabs if k.lower() == next(t.lower() for t, tbl in TAB_TABLE_ORDER if tbl == table_name)), None)
+            tab_key = next(
+                (k for k in tabs if k.lower() == next(t.lower() for t, tbl in TAB_TABLE_ORDER if tbl == table_name)),
+                None,
+            )
             if tab_key is not None and isinstance(tabs[tab_key], list):
                 conn.execute(f"DELETE FROM {table_name}")
 
@@ -414,7 +571,8 @@ def _build_snapshot_locked(conn: sqlite3.Connection) -> dict[str, Any]:
         tabs[tab_name] = [dict(r) for r in rows]
 
     return {
-        "storage_backend": settings.storage_backend,
+        "storage_backend": "postgresql_master" if _is_postgres_enabled() else settings.storage_backend,
+        "master_database": "postgresql" if _is_postgres_enabled() else "google_sheets_workbook",
         "google_sheets_mode": settings.google_sheets_mode,
         "spreadsheet_id": settings.google_sheets_spreadsheet_id,
         "spreadsheet_name": settings.google_sheets_spreadsheet_name,
@@ -434,14 +592,31 @@ def _save_workbook_locked(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _ensure_store_locked() -> sqlite3.Connection:
-    global _MEM_CONN, _ACTIVE_WORKBOOK_KEY
+    global _MEM_CONN, _ACTIVE_STORE_KEY, _PG_LAST_ERROR
     wb_path = _resolved_workbook_path()
-    wb_key = str(wb_path)
-    if _MEM_CONN is None or _ACTIVE_WORKBOOK_KEY != wb_key:
+    dsn = _configured_database_url()
+    store_key = (dsn, str(wb_path))
+
+    if _MEM_CONN is None or _ACTIVE_STORE_KEY != store_key:
         if _MEM_CONN is not None:
             _MEM_CONN.close()
+        _close_pg_connection_locked()
         _MEM_CONN = _create_fresh_memory_conn()
-        _ACTIVE_WORKBOOK_KEY = wb_key
+        _ACTIVE_STORE_KEY = store_key
+
+        if _is_postgres_enabled():
+            try:
+                pg_tabs = _fetch_all_from_pg_locked()
+                _hydrate_conn_from_dict_locked(_MEM_CONN, {"tabs": pg_tabs})
+                changes_before = _MEM_CONN.total_changes
+                _seed_defaults_locked(_MEM_CONN)
+                if _MEM_CONN.total_changes > changes_before:
+                    _sync_to_master_postgres_locked(_MEM_CONN)
+                _save_workbook_locked(_MEM_CONN)
+                return _MEM_CONN
+            except Exception as exc:
+                _PG_LAST_ERROR = str(exc)
+
         if wb_path.exists():
             try:
                 loaded = json.loads(wb_path.read_text(encoding="utf-8"))
@@ -455,33 +630,93 @@ def _ensure_store_locked() -> sqlite3.Connection:
 
 
 def reset_sheets_memory_store() -> None:
-    """Clear the active in-memory Google Sheets mirror and re-seed from defaults."""
-    global _MEM_CONN, _ACTIVE_WORKBOOK_KEY
+    """Clear the active store mirror and re-seed from defaults."""
+    global _MEM_CONN, _ACTIVE_STORE_KEY
     with _STORE_LOCK:
         if _MEM_CONN is not None:
             _MEM_CONN.close()
+        _close_pg_connection_locked()
         _MEM_CONN = _create_fresh_memory_conn()
-        _ACTIVE_WORKBOOK_KEY = str(_resolved_workbook_path())
+        _ACTIVE_STORE_KEY = (_configured_database_url(), str(_resolved_workbook_path()))
         _seed_defaults_locked(_MEM_CONN)
         _save_workbook_locked(_MEM_CONN)
 
 
+def pull_from_master_postgres() -> dict[str, Any]:
+    """Re-hydrate the runtime mirror and Google Sheets presentation directly from Render PostgreSQL."""
+    with _STORE_LOCK:
+        conn = _ensure_store_locked()
+        if not _is_postgres_enabled():
+            return {"refreshed": False, "reason": "DATABASE_URL not configured", "snapshot": _build_snapshot_locked(conn)}
+        pg_tabs = _fetch_all_from_pg_locked()
+        _hydrate_conn_from_dict_locked(conn, {"tabs": pg_tabs})
+        changes_before = conn.total_changes
+        _seed_defaults_locked(conn)
+        if conn.total_changes > changes_before:
+            _sync_to_master_postgres_locked(conn)
+        snap = _save_workbook_locked(conn)
+        return {"refreshed": True, "counts": snap["counts"], "updated_at_ist": snap["updated_at_ist"]}
+
+
+def get_master_db_status() -> dict[str, Any]:
+    """Return master Render PostgreSQL health, sanitized connection info, and table counts."""
+    with _STORE_LOCK:
+        conn = _ensure_store_locked()
+        snap = _build_snapshot_locked(conn)
+
+    dsn = _configured_database_url()
+    parsed = urlparse(dsn) if dsn else None
+    pg_enabled = _is_postgres_enabled()
+    live_ping_ok = False
+    ping_err = _PG_LAST_ERROR
+    if pg_enabled:
+        try:
+            with _STORE_LOCK:
+                pg_conn = _get_pg_connection_locked()
+                with pg_conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                pg_conn.commit()
+                live_ping_ok = True
+                ping_err = ""
+        except Exception as exc:
+            live_ping_ok = False
+            ping_err = str(exc)
+
+    return {
+        "master_engine": "PostgreSQL (Render)" if pg_enabled else "Google Sheets Workbook Mirror",
+        "postgresql_configured": pg_enabled,
+        "postgresql_connected": live_ping_ok,
+        "host": parsed.hostname if parsed else "",
+        "database": parsed.path.lstrip("/") if parsed else "",
+        "write_pipeline": (
+            "1. FastAPI Automation -> 2. Master PostgreSQL (Render) ACID Commit -> 3. Executive Google Sheets / Excel Projection"
+            if pg_enabled
+            else "1. FastAPI Automation -> 2. Google Sheets Workbook"
+        ),
+        "last_pg_sync_ist": _PG_LAST_SYNC_IST or snap["updated_at_ist"],
+        "last_error": ping_err,
+        "counts": snap["counts"],
+    }
+
+
 def get_sheets_workbook_snapshot() -> dict[str, Any]:
-    """Return all tabs from the active Google Sheets memory mirror."""
+    """Return all tabs from the active master-backed Google Sheets snapshot."""
     with _STORE_LOCK:
         conn = _ensure_store_locked()
         return _build_snapshot_locked(conn)
 
 
 def save_sheets_workbook_snapshot() -> dict[str, Any]:
-    """Flush the active Google Sheets memory mirror to GOOGLE_SHEETS_WORKBOOK_PATH."""
+    """Flush the active snapshot to Master PostgreSQL (if configured) and GOOGLE_SHEETS_WORKBOOK_PATH."""
     with _STORE_LOCK:
         conn = _ensure_store_locked()
+        if _is_postgres_enabled():
+            _sync_to_master_postgres_locked(conn)
         return _save_workbook_locked(conn)
 
 
 def load_sheets_workbook_snapshot(workbook_data: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Hydrate all tables from a Google Sheets JSON workbook dict or workbook file."""
+    """Hydrate tables from a snapshot, commit to Master PostgreSQL first, and flush workbook."""
     with _STORE_LOCK:
         conn = _ensure_store_locked()
         if workbook_data is None:
@@ -492,20 +727,25 @@ def load_sheets_workbook_snapshot(workbook_data: dict[str, Any] | None = None) -
                 workbook_data = {}
         _hydrate_conn_from_dict_locked(conn, workbook_data)
         _seed_defaults_locked(conn)
+        if _is_postgres_enabled():
+            _sync_to_master_postgres_locked(conn)
         return _save_workbook_locked(conn)
 
 
 @contextmanager
 def get_db() -> Iterator[sqlite3.Connection]:
-    """Yield a transactional cursor against the Google Sheets workbook mirror."""
+    """Yield a transactional cursor; commits writes to Master PostgreSQL FIRST, then updates Sheets."""
     global _TX_DEPTH
     with _STORE_LOCK:
         conn = _ensure_store_locked()
+        changes_before = conn.total_changes
         _TX_DEPTH += 1
         try:
             yield conn
             conn.commit()
-            if _TX_DEPTH == 1:
+            if _TX_DEPTH == 1 and conn.total_changes > changes_before:
+                if _is_postgres_enabled():
+                    _sync_to_master_postgres_locked(conn)
                 _save_workbook_locked(conn)
         except Exception:
             conn.rollback()
@@ -515,8 +755,15 @@ def get_db() -> Iterator[sqlite3.Connection]:
 
 
 def init_db() -> None:
-    """Initialize the Google Sheets workbook store, seed defaults, and flush snapshot."""
+    """Initialize Master PostgreSQL (if configured), seed defaults, and flush executive snapshot."""
+    global _PG_LAST_ERROR
     with _STORE_LOCK:
         conn = _ensure_store_locked()
+        changes_before = conn.total_changes
         _seed_defaults_locked(conn)
+        if _is_postgres_enabled() and (conn.total_changes > changes_before or not _PG_LAST_SYNC_IST):
+            try:
+                _sync_to_master_postgres_locked(conn)
+            except Exception as exc:
+                _PG_LAST_ERROR = str(exc)
         _save_workbook_locked(conn)

@@ -282,6 +282,8 @@ def _offset_ist_date(days: int) -> str:
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsgiTestClient:
     workbook_file = tmp_path / "sheets_workbook.json"
     db_file = tmp_path / "should_not_be_created.db"
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("GYMBRO_DATABASE_URL", "")
     monkeypatch.setenv("GYMBRO_STORAGE_BACKEND", "google_sheets")
     monkeypatch.setenv("GOOGLE_SHEETS_MODE", "n8n_bridge")
     monkeypatch.setenv("GOOGLE_SHEETS_SPREADSHEET_ID", "REPLACE_WITH_GOOGLE_SHEET_ID")
@@ -963,3 +965,36 @@ def test_28_docker_and_railway_deployment_artifacts():
     gitignore_text = (backend_root / ".gitignore").read_text(encoding="utf-8")
     assert ".env" in dockerignore_text
     assert ".env" in gitignore_text
+
+
+def test_29_master_db_trends_and_executive_sheets_presentation(client: AsgiTestClient):
+    _create_member(client, name="Rohan Mehta", phone="9876543219", plan="Quarterly", fee=4000, payment_status="Paid")
+    _create_member(client, name="Neha Verma", phone="9811122233", plan="Monthly", fee=1500, start_date=_offset_ist_date(-10), payment_status="Pending")
+
+    master = client.get("/api/v1/database/master-status")
+    assert master.status_code == 200
+    assert "write_pipeline" in master.json()
+    assert master.json()["counts"]["Members"] == 2
+
+    trends = client.get("/api/v1/analytics/trends")
+    assert trends.status_code == 200
+    tbody = trends.json()
+    assert 0 <= tbody["studio_health_score"] <= 100
+    assert tbody["summary_counts"]["total_members"] == 2
+    assert tbody["summary_counts"]["pending_dues_count"] == 1
+    assert len(tbody["automated_insights"]) >= 1
+
+    exec_view = client.get("/api/v1/sheets/executive-view")
+    assert exec_view.status_code == 200
+    ev = exec_view.json()
+    assert "Executive Summary & KPIs" in ev["tabs"]
+    assert "Customer Master Directory" in ev["tabs"]
+    assert len(ev["tabs"]["Customer Master Directory"]) == 2
+    assert "Automated Trends & Cohort Insights" in ev["tabs"]
+
+    pipeline = client.post("/api/v1/automations/master-sync-and-analyze")
+    assert pipeline.status_code == 200
+    pbody = pipeline.json()
+    assert "master_database" in pbody
+    assert "trends" in pbody
+    assert pbody["executive_sheets_counts"]["Customer Master Directory"] == 2

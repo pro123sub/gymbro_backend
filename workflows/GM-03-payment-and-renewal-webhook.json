@@ -96,13 +96,13 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "member_id": "={{ $json.member_id }}",
-            "plan": "={{ $json.plan }}",
-            "expiry_date": "={{ $json.new_expiry_date }}",
-            "payment_status": "={{ $json.payment_status }}",
-            "last_payment_date": "={{ $json.payment_date }}",
-            "member_status": "={{ $json.member_status }}",
-            "notes": "={{ $json.notes_update }}"
+            "member_id": "={{ $('Code - Compute Renewal & Invoice').first().json.member_id }}",
+            "plan": "={{ $('Code - Compute Renewal & Invoice').first().json.plan }}",
+            "expiry_date": "={{ $('Code - Compute Renewal & Invoice').first().json.new_expiry_date }}",
+            "payment_status": "={{ $('Code - Compute Renewal & Invoice').first().json.payment_status }}",
+            "last_payment_date": "={{ $('Code - Compute Renewal & Invoice').first().json.payment_date }}",
+            "member_status": "={{ $('Code - Compute Renewal & Invoice').first().json.member_status }}",
+            "notes": "={{ $('Code - Compute Renewal & Invoice').first().json.notes_update }}"
           },
           "matchingColumns": [
             "member_id"
@@ -240,6 +240,17 @@
       "main": [
         [
           {
+            "node": "HTTP Request - Sync Payment to Python Accounts Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Sync Payment to Python Accounts Ledger": {
+      "main": [
+        [
+          {
             "node": "Google Sheets - Update Member Status",
             "type": "main",
             "index": 0
@@ -259,17 +270,6 @@
       ]
     },
     "Google Sheets - Append Payment Ledger": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request - Sync Payment to Python Accounts Ledger",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP Request - Sync Payment to Python Accounts Ledger": {
       "main": [
         [
           {

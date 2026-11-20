@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, HTTPException, Query, status
 
-from ..database import TAB_NAME_LOOKUP, get_db, get_sheets_workbook_snapshot
+from ..database import (
+    TAB_NAME_LOOKUP,
+    get_db,
+    get_master_db_status,
+    get_sheets_workbook_snapshot,
+)
 from ..schemas import (
     ExpenseCreateRequest,
     GymSettingsUpdateRequest,
@@ -15,7 +20,7 @@ from ..schemas import (
     SheetsRowAppendRequest,
     SheetsSyncPullRequest,
 )
-from ..services import accounts_service, membership_service, n8n_client
+from ..services import accounts_service, ai_agent_service, membership_service, n8n_client
 from ..services.n8n_client import log_automation_event
 
 router = APIRouter(tags=["n8n Webhooks & Analytics"])
@@ -219,3 +224,38 @@ async def pull_google_sheets_workbook(payload: SheetsSyncPullRequest | None = Bo
         direction="pull",
         workbook_payload=payload.workbook if payload else None,
     )
+
+
+@router.get("/api/v1/database/master-status")
+def read_master_database_status():
+    """Return Render PostgreSQL Master DB connection health, write pipeline, and row counts."""
+    return get_master_db_status()
+
+
+@router.get("/api/v1/analytics/trends")
+def get_automated_trends():
+    """Compute automated studio health score, cohort/package trends, churn radar, and insights."""
+    return membership_service.get_automated_trends_and_analysis()
+
+
+@router.get("/api/v1/sheets/executive-view")
+def get_executive_google_sheets_presentation():
+    """Return formatted gym-admin presentation tabs built from the Master Database."""
+    return membership_service.get_executive_sheets_presentation()
+
+
+@router.post("/api/v1/automations/master-sync-and-analyze")
+async def run_master_sync_trends_and_followup_pipeline():
+    """Execute end-to-end automation: Master PostgreSQL -> Autopilot Follow-Ups -> Trends -> Executive Sheets."""
+    autopilot = ai_agent_service.run_full_gym_autopilot()
+    trends = membership_service.get_automated_trends_and_analysis()
+    executive_sheets = membership_service.get_executive_sheets_presentation()
+    sheets_push = await n8n_client.sync_sheets_with_remote(direction="push")
+    master_status = get_master_db_status()
+    return {
+        "master_database": master_status,
+        "autopilot": autopilot,
+        "trends": trends,
+        "executive_sheets_counts": executive_sheets["counts"],
+        "sheets_sync": sheets_push,
+    }

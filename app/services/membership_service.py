@@ -1344,3 +1344,379 @@ def export_full_workbook() -> dict[str, Any]:
         "Automation Log": logs_sheet,
         "Gym Settings": settings_sheet,
     }
+
+
+def _collect_trend_insights(
+    *,
+    total_members: int,
+    active_members: int,
+    pending_dues_count: int,
+    pending_dues_amount: float,
+    expiring_3d_count: int,
+    expiring_7d_count: int,
+    inactive_5d_count: int,
+    collection_efficiency_pct: float,
+    net_profit: float,
+    batch_trends: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Generate automated operational & retention insights from current metrics."""
+    insights: list[dict[str, str]] = []
+    if pending_dues_count > 0:
+        insights.append({
+            "category": "Revenue Recovery",
+            "severity": "HIGH",
+            "title": f"Rs.{int(round(pending_dues_amount)):,} pending across {pending_dues_count} member(s)",
+            "action_hint": "Run GM-02 Email Retention Cadence or Collect Fee in Finance tab.",
+        })
+    if expiring_3d_count > 0 or expiring_7d_count > 0:
+        insights.append({
+            "category": "Renewal Retention",
+            "severity": "CRITICAL" if expiring_3d_count > 0 else "MEDIUM",
+            "title": f"{expiring_3d_count} urgent (<=3d) and {expiring_7d_count} upcoming (<=7d) renewals",
+            "action_hint": "Send early-bird renewal reminders via GM-02 before expiry date.",
+        })
+    if inactive_5d_count > 0:
+        insights.append({
+            "category": "Churn Prevention",
+            "severity": "HIGH",
+            "title": f"{inactive_5d_count} active member(s) haven't checked in for 5+ days",
+            "action_hint": "Assign trainer check-in call and trigger 'We Miss You' cadence.",
+        })
+    if batch_trends:
+        top_batch = batch_trends[0]
+        insights.append({
+            "category": "Capacity Trend",
+            "severity": "INFO",
+            "title": f"Peak slot: {top_batch['batch_slot']} ({top_batch['members_count']} members, {top_batch['share_pct']}%)",
+            "action_hint": "Schedule flagship group classes and senior trainers during peak slot.",
+        })
+    if total_members > 0:
+        insights.append({
+            "category": "Financial Health",
+            "severity": "POSITIVE" if collection_efficiency_pct >= 80 and net_profit >= 0 else "MEDIUM",
+            "title": f"Collection efficiency at {collection_efficiency_pct}% | Active base {active_members}/{total_members}",
+            "action_hint": "Keep running Master DB + Trends Autopilot daily at 9PM IST via GM-04.",
+        })
+    return insights
+
+
+def get_automated_trends_and_analysis() -> dict[str, Any]:
+    """Compute automated studio trends, churn radar, cohort mix, and executive insights."""
+    today = today_ist_str()
+    settings = get_settings()
+    gst_rate = settings.gst_rate
+
+    with get_db() as conn:
+        member_rows = conn.execute("SELECT * FROM members ORDER BY created_at_ist DESC").fetchall()
+        payment_rows = conn.execute("SELECT * FROM payments WHERE status='Confirmed'").fetchall()
+        attendance_rows = conn.execute("SELECT * FROM attendance").fetchall()
+        expense_rows = conn.execute("SELECT * FROM expenses").fetchall()
+
+    total_members = len(member_rows)
+    active_count = 0
+    frozen_count = 0
+    expired_count = 0
+    pending_count = 0
+    pending_amount = 0.0
+    total_billed = 0.0
+
+    expiring_3d: list[dict[str, Any]] = []
+    expiring_7d: list[dict[str, Any]] = []
+    inactive_5d: list[dict[str, Any]] = []
+    pending_dues_list: list[dict[str, Any]] = []
+
+    plan_counts: dict[str, int] = {}
+    batch_counts: dict[str, int] = {}
+
+    for r in member_rows:
+        fee = float(r["fee"] or 0.0)
+        total_billed += fee
+        plan_name = r["plan"] or "Monthly"
+        plan_counts[plan_name] = plan_counts.get(plan_name, 0) + 1
+        batch = (r["batch_slot"] or "Flexible").strip() or "Flexible"
+        batch_counts[batch] = batch_counts.get(batch, 0) + 1
+
+        days_left = days_between_iso(r["expiry_date"], today)
+        brief = {
+            "member_id": r["member_id"],
+            "name": r["name"],
+            "phone": r["phone"],
+            "plan": plan_name,
+            "fee": fee,
+            "expiry_date": r["expiry_date"],
+            "days_remaining": days_left,
+        }
+
+        if r["payment_status"] == "Pending":
+            pending_count += 1
+            pending_amount += fee
+            pending_dues_list.append(brief)
+
+        if r["member_status"] == "Frozen":
+            frozen_count += 1
+        elif days_left < 0 or r["member_status"] == "Expired":
+            expired_count += 1
+        else:
+            active_count += 1
+            if 0 <= days_left <= 3:
+                expiring_3d.append(brief)
+            elif 4 <= days_left <= 7:
+                expiring_7d.append(brief)
+            last_ci = (r["last_checkin_date"] or "").strip()
+            if last_ci and days_between_iso(today, last_ci) >= 5:
+                inactive_5d.append({**brief, "days_since_checkin": days_between_iso(today, last_ci)})
+
+    gross_collections = round(sum(float(p["amount_paid"] or 0.0) for p in payment_rows), 2)
+    total_gst = round(
+        sum(float(p["gst_amount"] or 0.0) for p in payment_rows)
+        or (gross_collections - gross_collections / (1.0 + gst_rate) if gst_rate > 0 else 0.0),
+        2,
+    )
+    net_revenue_ex_gst = round(gross_collections - total_gst, 2)
+    total_expenses = round(sum(float(e["amount"] or 0.0) for e in expense_rows), 2)
+    net_profit = round(net_revenue_ex_gst - total_expenses, 2)
+
+    plan_rev: dict[str, float] = {}
+    for p in payment_rows:
+        pl = p["plan"] or "Other"
+        plan_rev[pl] = round(plan_rev.get(pl, 0.0) + float(p["amount_paid"] or 0.0), 2)
+
+    workout_counts: dict[str, int] = {}
+    total_checkins = len(attendance_rows)
+    for a in attendance_rows:
+        wt = (a["workout_type"] or "Gym Floor").strip() or "Gym Floor"
+        workout_counts[wt] = workout_counts.get(wt, 0) + 1
+
+    retention_rate_pct = round(((active_count + frozen_count) / total_members) * 100.0, 1) if total_members > 0 else 100.0
+    collection_denom = gross_collections + pending_amount
+    collection_efficiency_pct = (
+        round((gross_collections / collection_denom) * 100.0, 1) if collection_denom > 0 else 100.0
+    )
+    arpm = round(gross_collections / total_members, 2) if total_members > 0 else 0.0
+    checkins_today = sum(1 for a in attendance_rows if a["checkin_date"] == today)
+    engagement_ratio = (min(1.0, checkins_today / max(active_count, 1)) if active_count > 0 else 0.5)
+    health_score = (
+        round(
+            min(
+                100.0,
+                max(
+                    0.0,
+                    (retention_rate_pct * 0.40)
+                    + (collection_efficiency_pct * 0.35)
+                    + (engagement_ratio * 100.0 * 0.15)
+                    + (10.0 if net_profit >= 0 else 4.0),
+                ),
+            ),
+            1,
+        )
+        if total_members > 0
+        else 100.0
+    )
+
+    package_mix = [
+        {
+            "plan": plan,
+            "members_count": cnt,
+            "share_pct": round((cnt / max(total_members, 1)) * 100.0, 1),
+            "revenue_inr": round(plan_rev.get(plan, 0.0), 2),
+        }
+        for plan, cnt in sorted(plan_counts.items(), key=lambda x: (-x[1], x[0]))
+    ]
+    batch_trends = [
+        {
+            "batch_slot": slot,
+            "members_count": cnt,
+            "share_pct": round((cnt / max(total_members, 1)) * 100.0, 1),
+        }
+        for slot, cnt in sorted(batch_counts.items(), key=lambda x: (-x[1], x[0]))
+    ]
+    workout_trends = [
+        {
+            "workout_type": wt,
+            "checkins_count": cnt,
+            "share_pct": round((cnt / max(total_checkins, 1)) * 100.0, 1),
+        }
+        for wt, cnt in sorted(workout_counts.items(), key=lambda x: (-x[1], x[0]))
+    ]
+
+    insights = _collect_trend_insights(
+        total_members=total_members,
+        active_members=active_count,
+        pending_dues_count=pending_count,
+        pending_dues_amount=pending_amount,
+        expiring_3d_count=len(expiring_3d),
+        expiring_7d_count=len(expiring_7d),
+        inactive_5d_count=len(inactive_5d),
+        collection_efficiency_pct=collection_efficiency_pct,
+        net_profit=net_profit,
+        batch_trends=batch_trends,
+    )
+
+    return {
+        "as_of_ist": timestamp_ist_str(),
+        "studio_health_score": health_score,
+        "retention_rate_pct": retention_rate_pct,
+        "collection_efficiency_pct": collection_efficiency_pct,
+        "average_revenue_per_member": arpm,
+        "summary_counts": {
+            "total_members": total_members,
+            "active_members": active_count,
+            "frozen_members": frozen_count,
+            "expired_members": expired_count,
+            "pending_dues_count": pending_count,
+            "pending_dues_amount": round(pending_amount, 2),
+            "checkins_today": checkins_today,
+            "total_checkins": total_checkins,
+        },
+        "financial_pulse": {
+            "gross_collections_inr": gross_collections,
+            "gst_collected_inr": total_gst,
+            "net_revenue_ex_gst_inr": net_revenue_ex_gst,
+            "operating_expenses_inr": total_expenses,
+            "net_profit_inr": net_profit,
+        },
+        "package_mix": package_mix,
+        "batch_slot_popularity": batch_trends,
+        "workout_type_trends": workout_trends,
+        "churn_risk_radar": {
+            "expiring_3d": expiring_3d,
+            "expiring_7d": expiring_7d,
+            "inactive_5d": inactive_5d,
+            "pending_dues": pending_dues_list,
+        },
+        "top_streaks": get_attendance_leaderboard(limit=5),
+        "automated_insights": insights,
+    }
+
+
+def get_executive_sheets_presentation() -> dict[str, Any]:
+    """Build polished Excel & Google Sheets executive tabs for Gym Admins from Master DB."""
+    today = today_ist_str()
+    generated_at = timestamp_ist_str()
+    settings = get_settings()
+    trends = get_automated_trends_and_analysis()
+    due_followups = evaluate_follow_ups(include_already_reminded_today=True)
+    gym_settings = get_gym_settings()
+
+    with get_db() as conn:
+        member_rows = conn.execute("SELECT * FROM members ORDER BY created_at_ist DESC").fetchall()
+        payment_rows = conn.execute("SELECT * FROM payments ORDER BY created_at_ist DESC").fetchall()
+
+    counts = trends["summary_counts"]
+    fin = trends["financial_pulse"]
+    exec_summary_rows = [
+        {"Metric Category": "Studio", "KPI": "Studio Name", "Current Value": gym_settings.get("gym_name", "Crush Lifestyle Fitness Studio"), "Status / Benchmark": "Master PostgreSQL Synced"},
+        {"Metric Category": "Health", "KPI": "Studio Health Score", "Current Value": f"{trends['studio_health_score']} / 100", "Status / Benchmark": "Target >= 80"},
+        {"Metric Category": "Members", "KPI": "Active / Total Members", "Current Value": f"{counts['active_members']} / {counts['total_members']}", "Status / Benchmark": f"Retention {trends['retention_rate_pct']}%"},
+        {"Metric Category": "Members", "KPI": "Frozen / Expired Members", "Current Value": f"{counts['frozen_members']} Frozen · {counts['expired_members']} Expired", "Status / Benchmark": "Auto-evaluated daily"},
+        {"Metric Category": "Finance", "KPI": "Gross Revenue Collected", "Current Value": fin["gross_collections_inr"], "Status / Benchmark": f"ARPM Rs.{trends['average_revenue_per_member']}"},
+        {"Metric Category": "Finance", "KPI": "18% GST Collected (CGST+SGST)", "Current Value": fin["gst_collected_inr"], "Status / Benchmark": f"SAC {gym_settings.get('sac_code', '999723')}"},
+        {"Metric Category": "Finance", "KPI": "Operating Expenses", "Current Value": fin["operating_expenses_inr"], "Status / Benchmark": "Synced from CFO Ledger"},
+        {"Metric Category": "Finance", "KPI": "Net Studio Profit (Ex-GST)", "Current Value": fin["net_profit_inr"], "Status / Benchmark": f"Collection Efficiency {trends['collection_efficiency_pct']}%"},
+        {"Metric Category": "Receivables", "KPI": "Pending Dues", "Current Value": f"Rs.{counts['pending_dues_amount']} ({counts['pending_dues_count']} members)", "Status / Benchmark": "Action via GM-02 Email"},
+        {"Metric Category": "Engagement", "KPI": "Today's Floor Attendance", "Current Value": counts["checkins_today"], "Status / Benchmark": f"Lifetime Check-Ins: {counts['total_checkins']}"},
+    ]
+
+    customer_directory_rows = []
+    for r in member_rows:
+        m = row_to_member_response(r, today=today)
+        customer_directory_rows.append({
+            "Member ID": m.member_id,
+            "Full Name": m.name,
+            "WhatsApp / Phone": f"+{m.phone}",
+            "Email": m.email or "—",
+            "Package Plan": "Annual" if m.plan == "Yearly" else m.plan,
+            "Fee (INR)": m.fee,
+            "Start Date": m.start_date,
+            "Expiry Date": m.expiry_date,
+            "Days Remaining": m.days_remaining,
+            "Member Status": m.member_status,
+            "Payment Status": m.payment_status,
+            "Streak (Days)": m.current_streak,
+            "Total Visits": m.total_checkins,
+            "Assigned Trainer": m.assigned_trainer,
+            "Batch Slot": m.batch_slot,
+            "Next Automated Follow-Up": m.next_followup_type or "UP_TO_DATE",
+        })
+
+    gst_ledger_rows = []
+    for p in payment_rows:
+        amt = round(float(p["amount_paid"] or 0.0), 2)
+        gst = round(float(p["gst_amount"] or 0.0), 2)
+        cgst = round(gst / 2.0, 2)
+        sgst = round(gst - cgst, 2)
+        gst_ledger_rows.append({
+            "Invoice No": p["invoice_number"],
+            "Payment Date": p["payment_date"],
+            "Member ID": p["member_id"],
+            "Member Name": p["member_name"],
+            "Plan": "Annual" if p["plan"] == "Yearly" else p["plan"],
+            "Taxable Value (INR)": round(amt - gst, 2),
+            "CGST 9% (INR)": cgst,
+            "SGST 9% (INR)": sgst,
+            "Total Paid (INR)": amt,
+            "Payment Mode": p["payment_mode"],
+            "Status": p["status"],
+            "New Expiry": p["new_expiry_date"],
+        })
+
+    trends_rows: list[dict[str, Any]] = []
+    for pm in trends["package_mix"]:
+        trends_rows.append({
+            "Analysis Group": "Package Mix",
+            "Segment": "Annual" if pm["plan"] == "Yearly" else pm["plan"],
+            "Members / Volume": pm["members_count"],
+            "Share (%)": pm["share_pct"],
+            "Revenue (INR)": pm["revenue_inr"],
+            "Recommended Action": "High-LTV tier" if pm["plan"] in ("Yearly", "Half-Yearly") else "Upsell to Quarterly/Annual",
+        })
+    for bt in trends["batch_slot_popularity"]:
+        trends_rows.append({
+            "Analysis Group": "Batch Demand",
+            "Segment": bt["batch_slot"],
+            "Members / Volume": bt["members_count"],
+            "Share (%)": bt["share_pct"],
+            "Revenue (INR)": "—",
+            "Recommended Action": "Optimize trainer coverage for this batch",
+        })
+    for ins in trends["automated_insights"]:
+        trends_rows.append({
+            "Analysis Group": f"AI Insight ({ins['severity']})",
+            "Segment": ins["category"],
+            "Members / Volume": "Live",
+            "Share (%)": "—",
+            "Revenue (INR)": "—",
+            "Recommended Action": f"{ins['title']} -> {ins['action_hint']}",
+        })
+
+    followup_queue_rows = [
+        {
+            "Priority": f.priority,
+            "Follow-Up Stage": f.followup_type,
+            "Member ID": f.member_id,
+            "Member Name": f.name,
+            "Phone": f"+{f.phone}",
+            "Plan": "Annual" if f.plan == "Yearly" else f.plan,
+            "Expiry Date": f.expiry_date,
+            "Payment Status": f.payment_status,
+            "Channel": f.channel,
+            "Automated Message": f.message_text,
+        }
+        for f in due_followups
+    ]
+
+    tabs = {
+        "Executive Summary & KPIs": exec_summary_rows,
+        "Customer Master Directory": customer_directory_rows,
+        "GST Billing & Revenue Ledger": gst_ledger_rows,
+        "Automated Trends & Cohort Insights": trends_rows,
+        "Retention & Follow-Up Queue": followup_queue_rows,
+    }
+    return {
+        "generated_at_ist": generated_at,
+        "spreadsheet_id": settings.google_sheets_spreadsheet_id,
+        "spreadsheet_name": settings.google_sheets_spreadsheet_name,
+        "tab_order": list(tabs.keys()),
+        "counts": {k: len(v) for k, v in tabs.items()},
+        "tabs": tabs,
+    }

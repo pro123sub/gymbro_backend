@@ -26,6 +26,10 @@ class Settings(BaseSettings):
         default="./data/crush_fitness.db",
         validation_alias=AliasChoices("GYMBRO_DB_PATH", "DB_PATH"),
     )
+    database_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("DATABASE_URL", "GYMBRO_DATABASE_URL"),
+    )
     storage_backend: str = Field(
         default="google_sheets",
         validation_alias=AliasChoices("GYMBRO_STORAGE_BACKEND", "STORAGE_BACKEND"),

@@ -196,6 +196,25 @@
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.FASTAPI_PUBLIC_URL || 'http://localhost:8000') + '/api/v1/webhooks/n8n/member-registered' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Generate Member Record').first().json }}",
+        "options": {}
+      },
+      "id": "b6d9f1a0-1009-4c22-9a11-000000000009",
+      "name": "Sync Master PostgreSQL Database (FastAPI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        910,
+        200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
         "operation": "append",
         "documentId": {
           "__rl": true,
@@ -210,24 +229,24 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "member_id": "={{ $json.member_id }}",
-            "name": "={{ $json.name }}",
-            "phone": "={{ $json.phone }}",
-            "email": "={{ $json.email }}",
-            "gender": "={{ $json.gender }}",
-            "date_of_birth": "={{ $json.date_of_birth }}",
-            "address": "={{ $json.address }}",
-            "emergency_contact_name": "={{ $json.emergency_contact_name }}",
-            "emergency_contact_phone": "={{ $json.emergency_contact_phone }}",
-            "plan": "={{ $json.plan }}",
-            "fee": "={{ $json.fee }}",
-            "start_date": "={{ $json.start_date }}",
-            "expiry_date": "={{ $json.expiry_date }}",
-            "payment_status": "={{ $json.payment_status }}",
-            "last_payment_date": "={{ $json.last_payment_date }}",
-            "last_reminder_date": "={{ $json.last_reminder_date }}",
-            "member_status": "={{ $json.member_status }}",
-            "notes": "={{ $json.notes }}"
+            "member_id": "={{ $('Code - Generate Member Record').first().json.member_id }}",
+            "name": "={{ $('Code - Generate Member Record').first().json.name }}",
+            "phone": "={{ $('Code - Generate Member Record').first().json.phone }}",
+            "email": "={{ $('Code - Generate Member Record').first().json.email }}",
+            "gender": "={{ $('Code - Generate Member Record').first().json.gender }}",
+            "date_of_birth": "={{ $('Code - Generate Member Record').first().json.date_of_birth }}",
+            "address": "={{ $('Code - Generate Member Record').first().json.address }}",
+            "emergency_contact_name": "={{ $('Code - Generate Member Record').first().json.emergency_contact_name }}",
+            "emergency_contact_phone": "={{ $('Code - Generate Member Record').first().json.emergency_contact_phone }}",
+            "plan": "={{ $('Code - Generate Member Record').first().json.plan }}",
+            "fee": "={{ $('Code - Generate Member Record').first().json.fee }}",
+            "start_date": "={{ $('Code - Generate Member Record').first().json.start_date }}",
+            "expiry_date": "={{ $('Code - Generate Member Record').first().json.expiry_date }}",
+            "payment_status": "={{ $('Code - Generate Member Record').first().json.payment_status }}",
+            "last_payment_date": "={{ $('Code - Generate Member Record').first().json.last_payment_date }}",
+            "last_reminder_date": "={{ $('Code - Generate Member Record').first().json.last_reminder_date }}",
+            "member_status": "={{ $('Code - Generate Member Record').first().json.member_status }}",
+            "notes": "={{ $('Code - Generate Member Record').first().json.notes }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -500,6 +519,17 @@
       ]
     },
     "Code - Generate Member Record": {
+      "main": [
+        [
+          {
+            "node": "Sync Master PostgreSQL Database (FastAPI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Master PostgreSQL Database (FastAPI)": {
       "main": [
         [
           {

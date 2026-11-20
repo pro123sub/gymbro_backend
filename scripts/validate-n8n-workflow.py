@@ -59,6 +59,7 @@ REQUIRED_NODE_NAMES = [
     "Code - Validate Registration",
     "IF - Validation Passed",
     "Code - Generate Member Record",
+    "Sync Master PostgreSQL Database (FastAPI)",
     "Google Sheets - Append Member",
     "Respond to Registration",
     "Respond - Validation Error",
@@ -117,7 +118,7 @@ def validate_workflow_structure(workflow: dict[str, Any], raw_text: str) -> list
         )
 
     nodes = workflow.get("nodes")
-    assert_true(isinstance(nodes, list) and len(nodes) == 8, "Expected exactly 8 workflow nodes.", errors)
+    assert_true(isinstance(nodes, list) and len(nodes) == 9, "Expected exactly 9 workflow nodes.", errors)
     if not isinstance(nodes, list):
         return errors
 
@@ -253,7 +254,8 @@ def validate_workflow_structure(workflow: dict[str, Any], raw_text: str) -> list
         assert_true(branch_targets("Code - Validate Registration", 0) == ["IF - Validation Passed"], "Validate Registration must connect to IF - Validation Passed.", errors)
         assert_true(branch_targets("IF - Validation Passed", 0) == ["Code - Generate Member Record"], "IF true branch must connect to Code - Generate Member Record.", errors)
         assert_true(branch_targets("IF - Validation Passed", 1) == ["Respond - Validation Error"], "IF false branch must connect to Respond - Validation Error.", errors)
-        assert_true(branch_targets("Code - Generate Member Record", 0) == ["Google Sheets - Append Member"], "Generate Member Record must connect to Google Sheets - Append Member.", errors)
+        assert_true(branch_targets("Code - Generate Member Record", 0) == ["Sync Master PostgreSQL Database (FastAPI)"], "Generate Member Record must connect to Sync Master PostgreSQL Database (FastAPI).", errors)
+        assert_true(branch_targets("Sync Master PostgreSQL Database (FastAPI)", 0) == ["Google Sheets - Append Member"], "Sync Master PostgreSQL Database (FastAPI) must connect to Google Sheets - Append Member.", errors)
         assert_true(branch_targets("Google Sheets - Append Member", 0) == ["Respond to Registration"], "Google Sheets success output must connect to Respond to Registration.", errors)
         assert_true(branch_targets("Google Sheets - Append Member", 1) == ["Respond - Storage Error"], "Google Sheets error output must connect to Respond - Storage Error.", errors)
 

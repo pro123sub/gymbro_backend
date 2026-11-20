@@ -1,10 +1,11 @@
 {
-  "storage_backend": "google_sheets",
+  "storage_backend": "postgresql_master",
+  "master_database": "postgresql",
   "google_sheets_mode": "n8n_bridge",
   "spreadsheet_id": "1qeUOu5h491C-UmjohtUJqmywfNWx9hB3qMt9hsJJiyY",
   "spreadsheet_name": "Crush_Lifestyle_Fitness_Studi",
   "workbook_path": "D:\\Project\\GymBro\\backend\\data\\crush_fitness_sheets_workbook.json",
-  "updated_at_ist": "2026-11-19 16:55:38 IST",
+  "updated_at_ist": "2026-11-20 18:05:12 IST",
   "counts": {
     "Membership Plans": 4,
     "Members": 0,
@@ -13,7 +14,7 @@
     "Attendance": 0,
     "Membership Freezes": 0,
     "Follow-Up Logs": 0,
-    "Automation Log": 9,
+    "Automation Log": 0,
     "Gym Settings": 10,
     "Expenses": 0,
     "Agent Runs": 0,
@@ -63,7 +64,7 @@
       {
         "workflow_code": "GM-01",
         "name": "GM-01 - Gym Member Registration",
-        "description": "Intake form validation, Indian mobile normalization, MEM-XXXXXXXX generation, and Google Sheets append",
+        "description": "Intake validation, MEM-XXXXXXXX generation, Master PostgreSQL upsert, and formatted Google Sheets append",
         "trigger_type": "form",
         "cron_expression": "",
         "timezone": "Asia/Kolkata",
@@ -73,12 +74,12 @@
         "last_triggered_at_ist": "",
         "last_status": "IDLE",
         "total_runs": 0,
-        "updated_at_ist": "2026-11-17 23:55:11 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "workflow_code": "GM-02",
         "name": "GM-02 - Smart Expiry, Dues & Onboarding Follow-Up Cadence",
-        "description": "Daily 9AM IST multi-stage WhatsApp retention cadence with FastAPI callback",
+        "description": "Daily 9AM IST multi-stage Email (Gmail) retention cadence synced to Master PostgreSQL & Sheets",
         "trigger_type": "schedule",
         "cron_expression": "0 9 * * *",
         "timezone": "Asia/Kolkata",
@@ -88,12 +89,12 @@
         "last_triggered_at_ist": "",
         "last_status": "IDLE",
         "total_runs": 0,
-        "updated_at_ist": "2026-11-17 23:55:11 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "workflow_code": "GM-03",
         "name": "GM-03 - Payment Webhook & Membership Renewal Engine",
-        "description": "Idempotent Razorpay & FastAPI payment settlement, expiry extension, and GST ledger sync",
+        "description": "Idempotent Razorpay & FastAPI payment settlement into Master PostgreSQL first, then GST Ledger & Sheets",
         "trigger_type": "webhook",
         "cron_expression": "",
         "timezone": "Asia/Kolkata",
@@ -103,12 +104,12 @@
         "last_triggered_at_ist": "",
         "last_status": "IDLE",
         "total_runs": 0,
-        "updated_at_ist": "2026-11-17 23:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "workflow_code": "GM-04",
         "name": "GM-04 - Daily Owner Digest & Inactivity Follow-Up",
-        "description": "Daily 9PM IST KPI digest, churn radar, and autonomous AI P&L audit",
+        "description": "Daily 9PM IST automated KPI trends, churn radar, and autonomous AI P&L audit",
         "trigger_type": "schedule",
         "cron_expression": "0 21 * * *",
         "timezone": "Asia/Kolkata",
@@ -118,12 +119,12 @@
         "last_triggered_at_ist": "",
         "last_status": "IDLE",
         "total_runs": 0,
-        "updated_at_ist": "2026-11-17 23:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "workflow_code": "GM-05",
         "name": "GM-05 - Autonomous AI Gym Manager & Accounts Agent",
-        "description": "Bidirectional WhatsApp & Owner command bridge to FastAPI AI Gym Manager & CFO Agent",
+        "description": "Bidirectional Email & Owner command bridge to Master PostgreSQL, OpenAI Agent & Sheets",
         "trigger_type": "webhook",
         "cron_expression": "",
         "timezone": "Asia/Kolkata",
@@ -133,164 +134,64 @@
         "last_triggered_at_ist": "",
         "last_status": "IDLE",
         "total_runs": 0,
-        "updated_at_ist": "2026-11-17 23:55:13 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       }
     ],
     "Payments": [],
     "Attendance": [],
     "Membership Freezes": [],
     "Follow-Up Logs": [],
-    "Automation Log": [
-      {
-        "log_id": "AUTO-35B1FF8F",
-        "workflow": "GM-02",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"iF0yxmS2iQOl5yg4\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-02 to n8n (iF0yxmS2iQOl5yg4).",
-        "created_at_ist": "2026-11-17 18:14:07 IST"
-      },
-      {
-        "log_id": "AUTO-10289EEA",
-        "workflow": "GM-03",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"aEx0lIp361veuGZm\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-03 to n8n (aEx0lIp361veuGZm).",
-        "created_at_ist": "2026-11-17 18:14:08 IST"
-      },
-      {
-        "log_id": "AUTO-4E8BB567",
-        "workflow": "GM-04",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"2CmWRbhlVxDhCeCk\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-04 to n8n (2CmWRbhlVxDhCeCk).",
-        "created_at_ist": "2026-11-17 18:14:08 IST"
-      },
-      {
-        "log_id": "AUTO-3BDBEDCB",
-        "workflow": "GM-05",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"LLxGJlLf6cBj5jBx\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-05 to n8n (LLxGJlLf6cBj5jBx).",
-        "created_at_ist": "2026-11-17 18:14:09 IST"
-      },
-      {
-        "log_id": "AUTO-9B885929",
-        "workflow": "GM-01",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"TyvdBoE1S0x0CqEh\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-01 to n8n (TyvdBoE1S0x0CqEh).",
-        "created_at_ist": "2026-11-17 23:55:11 IST"
-      },
-      {
-        "log_id": "AUTO-53B57E44",
-        "workflow": "GM-02",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"iF0yxmS2iQOl5yg4\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-02 to n8n (iF0yxmS2iQOl5yg4).",
-        "created_at_ist": "2026-11-17 23:55:11 IST"
-      },
-      {
-        "log_id": "AUTO-85F1D704",
-        "workflow": "GM-03",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"aEx0lIp361veuGZm\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-03 to n8n (aEx0lIp361veuGZm).",
-        "created_at_ist": "2026-11-17 23:55:12 IST"
-      },
-      {
-        "log_id": "AUTO-5C89CBE2",
-        "workflow": "GM-04",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"2CmWRbhlVxDhCeCk\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-04 to n8n (2CmWRbhlVxDhCeCk).",
-        "created_at_ist": "2026-11-17 23:55:12 IST"
-      },
-      {
-        "log_id": "AUTO-314975A0",
-        "workflow": "GM-05",
-        "event_type": "N8N_AUTO_DEPLOY",
-        "member_id": "STUDIO",
-        "status": "DEPLOYED",
-        "payload_json": "{\"remote_id\": \"LLxGJlLf6cBj5jBx\", \"activated\": false}",
-        "response_status": 200,
-        "details": "Deployed GM-05 to n8n (LLxGJlLf6cBj5jBx).",
-        "created_at_ist": "2026-11-17 23:55:13 IST"
-      }
-    ],
+    "Automation Log": [],
     "Gym Settings": [
       {
         "setting_key": "gym_name",
         "setting_value": "Crush Lifestyle Fitness Studio",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "branch_name",
         "setting_value": "Main Studio",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "timezone",
         "setting_value": "Asia/Kolkata",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "currency",
         "setting_value": "INR",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "gst_rate",
         "setting_value": "0.18",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "gstin",
         "setting_value": "27AAACR5055K1Z5",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "sac_code",
         "setting_value": "999723",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "opening_time",
         "setting_value": "05:30",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "closing_time",
         "setting_value": "22:30",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       },
       {
         "setting_key": "support_phone",
         "setting_value": "919876543210",
-        "updated_at_ist": "2026-11-17 17:55:12 IST"
+        "updated_at_ist": "2026-11-20 18:05:07 IST"
       }
     ],
     "Expenses": [],

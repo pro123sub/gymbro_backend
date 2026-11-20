@@ -26,6 +26,7 @@ const WORKFLOW_SPECS = [
       'Code - Validate Registration',
       'IF - Validation Passed',
       'Code - Generate Member Record',
+      'Sync Master PostgreSQL Database (FastAPI)',
       'Google Sheets - Append Member',
       'Respond to Registration',
       'Respond - Validation Error',
